@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from typing import List
+from typing import Dict, List
 
 from src.DatabaseManager import DatabaseManager
 
@@ -12,7 +13,46 @@ from src.DatabaseManager import DatabaseManager
 BASE_DIR = Path(__file__).resolve().parent
 """Project root directory used for resolving setup paths."""
 
-REQUIRED_DIRECTORIES = ("src", "ingest", "clean", "originals", "db", "logs")
+
+def _load_env_file(env_path: Path) -> None:
+    """Populate ``os.environ`` with values from a ``.env`` file if present."""
+
+    if not env_path.exists():
+        return
+
+    try:
+        with env_path.open("r", encoding="utf-8") as env_file:
+            for line in env_file:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    continue
+
+                key, value = stripped.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+
+                if (value.startswith("'") and value.endswith("'")) or (
+                    value.startswith('"') and value.endswith('"')
+                ):
+                    value = value[1:-1]
+
+                os.environ.setdefault(key, value)
+    except OSError as exc:
+        print(f"Warning: unable to read environment file {env_path}: {exc}")
+
+
+_load_env_file(BASE_DIR / ".env")
+
+
+PIPELINE_DIRECTORIES: Dict[str, str] = {
+    'ingest': os.getenv("PIPELINE_INGEST_DIR", "ingest"),
+    'clean': os.getenv("PIPELINE_CLEAN_DIR", "clean"),
+    'originals': os.getenv("PIPELINE_ORIGINALS_DIR", "originals"),
+    'db': os.getenv("PIPELINE_DB_DIR", "db"),
+    'logs': os.getenv("PIPELINE_LOG_DIR", "logs"),
+}
+
+REQUIRED_DIRECTORIES = ("src",) + tuple(PIPELINE_DIRECTORIES.values())
 """Directories that must exist for the pipeline to operate correctly."""
 
 
@@ -51,7 +91,7 @@ def _ensure_required_directories(base_dir: Path = BASE_DIR) -> None:
 def _write_ingest_readme(base_dir: Path = BASE_DIR) -> None:
     """Create a helper README in the ingest directory if absent."""
 
-    ingest_readme = base_dir / "ingest" / "README.txt"
+    ingest_readme = base_dir / PIPELINE_DIRECTORIES['ingest'] / "README.txt"
 
     if ingest_readme.exists():
         print(f"• {ingest_readme.relative_to(base_dir)} already exists")
@@ -67,7 +107,8 @@ def _write_ingest_readme(base_dir: Path = BASE_DIR) -> None:
 def _initialize_database(base_dir: Path = BASE_DIR) -> None:
     """Ensure the SQLite database structure exists."""
 
-    db_path = base_dir / "db" / "processing.db"
+    db_filename = os.getenv("PIPELINE_DB_FILENAME", "processing.db")
+    db_path = base_dir / PIPELINE_DIRECTORIES['db'] / db_filename
     DatabaseManager(str(db_path))
     print(f"✓ Database initialized at {db_path.relative_to(base_dir)}")
 

@@ -33,9 +33,44 @@ from src.DatabaseManager import DatabaseManager
 from src.SecurePipeline import SecurePipeline
 
 
-def check_setup_required(base_dir: Path = Path(".")):
-    """Check if initial setup is required."""
-    required_dirs = ['ingest', 'clean', 'originals', 'db', 'src']
+def load_env_file(env_path: Path) -> None:
+    """Load environment variables from a ``.env`` file if present."""
+
+    if not env_path.exists():
+        return
+
+    try:
+        with env_path.open("r", encoding="utf-8") as env_file:
+            for line in env_file:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    continue
+
+                key, value = stripped.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+
+                if (value.startswith("'") and value.endswith("'")) or (
+                    value.startswith('"') and value.endswith('"')
+                ):
+                    value = value[1:-1]
+
+                os.environ.setdefault(key, value)
+    except OSError as exc:
+        print(f"Warning: unable to read environment file {env_path}: {exc}")
+
+
+def check_setup_required(base_dir: Path):
+    """Check if initial setup is required for the configured directories."""
+
+    required_dirs = [
+        os.getenv("PIPELINE_INGEST_DIR", "ingest"),
+        os.getenv("PIPELINE_CLEAN_DIR", "clean"),
+        os.getenv("PIPELINE_ORIGINALS_DIR", "originals"),
+        os.getenv("PIPELINE_DB_DIR", "db"),
+        os.getenv("PIPELINE_LOG_DIR", "logs"),
+        "src",
+    ]
 
     missing_dirs = []
     for dirname in required_dirs:
@@ -45,13 +80,14 @@ def check_setup_required(base_dir: Path = Path(".")):
     return missing_dirs
 
 
-def run_initial_setup():
+def run_initial_setup(base_dir: Path):
     """Run initial setup if required."""
     print("First-time setup required...")
 
     try:
         import setup
-        if setup.run_setup():
+
+        if setup.run_setup(base_dir=base_dir):
             print("\nSetup completed successfully!")
             return True
         else:
@@ -60,21 +96,35 @@ def run_initial_setup():
     except ImportError:
         # Fallback: basic directory creation
         print("Setup module not found, creating basic directory structure...")
-        return create_basic_directories()
+        return create_basic_directories(base_dir)
 
 
-def create_basic_directories():
+def create_basic_directories(base_dir: Path):
     """Fallback directory creation if setup.py is not available."""
-    base_dir = Path(".")
-    directories = ['ingest', 'clean', 'originals', 'db', 'logs', 'src']
+
+    directories = [
+        os.getenv("PIPELINE_INGEST_DIR", "ingest"),
+        os.getenv("PIPELINE_CLEAN_DIR", "clean"),
+        os.getenv("PIPELINE_ORIGINALS_DIR", "originals"),
+        os.getenv("PIPELINE_DB_DIR", "db"),
+        os.getenv("PIPELINE_LOG_DIR", "logs"),
+        "src",
+    ]
 
     try:
         for dirname in directories:
-            (base_dir / dirname).mkdir(exist_ok=True)
-            print(f"✓ Created {dirname}/")
+            dir_path = base_dir / dirname
+            relative_name = dir_path.relative_to(base_dir)
+            if dir_path.exists():
+                print(f"• {relative_name}/ already exists")
+                continue
+
+            dir_path.mkdir(parents=True, exist_ok=True)
+            print(f"✓ Created {relative_name}/")
 
         # Create basic README for ingest
-        ingest_readme = base_dir / 'ingest' / 'README.txt'
+        ingest_dir = base_dir / os.getenv("PIPELINE_INGEST_DIR", "ingest")
+        ingest_readme = ingest_dir / 'README.txt'
         if not ingest_readme.exists():
             ingest_readme.write_text(
                 "Place sensitive images here for processing.\n"
@@ -122,13 +172,26 @@ def show_welcome_message():
 def main():
     """Main interactive interface with setup check."""
 
+    project_root = Path(__file__).resolve().parent
+    load_env_file(project_root / ".env")
+
+    base_dir_env = os.getenv("PIPELINE_BASE_DIR")
+    if base_dir_env:
+        candidate = Path(base_dir_env).expanduser()
+        if candidate.is_absolute():
+            base_dir = candidate.resolve()
+        else:
+            base_dir = (project_root / candidate).resolve()
+    else:
+        base_dir = project_root
+
     # Check for required dependencies first
     if not check_dependencies():
         print("\nPlease install required packages and try again.")
         sys.exit(1)
 
     # Check if setup is required
-    missing_dirs = check_setup_required()
+    missing_dirs = check_setup_required(base_dir)
 
     if missing_dirs:
         print(f"Missing directories: {', '.join(missing_dirs)}")
@@ -136,7 +199,7 @@ def main():
         if len(missing_dirs) >= 3:  # If multiple dirs missing, probably first run
             response = input("Run initial setup? (y/n) [y]: ").lower()
             if not response.startswith('n'):
-                if not run_initial_setup():
+                if not run_initial_setup(base_dir):
                     print("Setup failed. Exiting.")
                     sys.exit(1)
 
@@ -146,15 +209,17 @@ def main():
             # Just create missing directories
             print("Creating missing directories...")
             for dirname in missing_dirs:
-                Path(dirname).mkdir(exist_ok=True)
-                print(f"✓ Created {dirname}/")
+                dir_path = base_dir / dirname
+                dir_path.mkdir(parents=True, exist_ok=True)
+                relative_name = dir_path.relative_to(base_dir)
+                print(f"✓ Created {relative_name}/")
 
     # Show welcome message
     show_welcome_message()
 
     # Initialize pipeline
     try:
-        pipeline = SecurePipeline()
+        pipeline = SecurePipeline(str(base_dir))
     except Exception as e:
         print(f"Error initializing pipeline: {e}")
         print("Please ensure all required files are present in src/ directory.")
@@ -184,19 +249,20 @@ def main():
         elif choice == "3":
             # Show directory structure
             print(f"\nDirectory structure in {pipeline.base_dir}:")
-            for dirname in ['ingest', 'clean', 'originals', 'db', 'logs']:
-                dir_path = pipeline.base_dir / dirname
+            for key in ['ingest', 'clean', 'originals', 'db', 'logs']:
+                dir_path = pipeline.directories[key]
+                dir_label = pipeline.directory_names[key]
                 if dir_path.exists():
                     files = list(dir_path.glob('*'))
                     count = len([f for f in files if f.is_file()])
-                    print(f"  {dirname}/  ({count} files)")
+                    print(f"  {dir_label}/  ({count} files)")
                 else:
-                    print(f"  {dirname}/  (missing)")
+                    print(f"  {dir_label}/  (missing)")
 
         elif choice == "4":
             # Run setup again
             print("\nRunning setup...")
-            run_initial_setup()
+            run_initial_setup(pipeline.base_dir)
 
         elif choice == "5":
             print("\nExiting pipeline. Stay safe.")
