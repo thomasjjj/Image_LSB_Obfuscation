@@ -1,248 +1,118 @@
-# AGENTS.md — Secure Image Processing Pipeline (Human Rights Protection)
+# AGENTS.md — Secure Image Processing Pipeline
 
-## Purpose
+## Mission
 
-Provide a **secure, auditable, and automated** workflow to protect sources and researchers in human rights documentation by aggressively obfuscating potential identifying information in images. The system:
-
-* **Preserves originals** with cryptographic hashes and complete metadata extraction for legal/forensic purposes.
-* **Applies LSB randomization** to disrupt steganographic content and hidden watermarks.
-* **Strips all metadata** (EXIF/GPS/IPTC/XMP/ICC profiles) and normalizes image format.
-* **Maintains full audit trail** in SQLite database linking original ↔ cleaned files with processing details.
-
-## Core Security Goals
-
-* **Source Protection**: Remove identifying metadata that could compromise sources or locations.
-* **Steganographic Disruption**: LSB randomization to defeat common hiding techniques.  
-* **Watermark Obfuscation**: Multi-pass processing to disrupt embedded identification.
-* **Evidence Preservation**: Complete audit trail while protecting sensitive information.
+Deliver a **secure, auditable, and automated** workflow that protects sources
+and researchers by aggressively obfuscating sensitive imagery while preserving a
+verifiable chain of custody. The system pairs LSB randomisation with thorough
+metadata stripping and detailed audit logging.
 
 ---
 
-## High-Level Flow
+## Current Code Surface
+
+| File | Role |
+| --- | --- |
+| `main.py` | Rich-powered CLI for configuration, batch execution, and quick database summaries. |
+| `setup.py` | Idempotent workspace bootstrapper – creates `ingest/`, `clean/`, `originals/`, `db/`, `logs/`, and seeds the SQLite schema. |
+| `src/SecurePipeline.py` | Orchestrates ingestion, preservation, obfuscation, storage, and audit logging. |
+| `src/SecureImageProcessor.py` | Handles metadata extraction, multi-pass LSB randomisation, optional noise injection, and format normalisation. |
+| `src/DatabaseManager.py` | Encapsulates all SQLite interactions (runs, files, preserved metadata, obfuscation summaries, actions). |
+| `test.py` | Optional verification harness that embeds and then attempts to recover an LSB payload to prove the scrubber succeeds. |
+
+Dependencies are pinned in `requirements.txt` (`rich`, `pillow`, `numpy`). The
+system remains pure Python and cross-platform.
+
+---
+
+## Directory Expectations
+
+The working tree is designed around strict segregation:
 
 ```
-[ingest/]  -->  Detection Agent     -->  Load & analyze image
-                                   -->  Metadata Extraction Agent (preserve complete metadata)
-                                   -->  Security Agent (LSB randomization, multi-pass obfuscation)
-                                   -->  Sanitization Agent (strip metadata, format normalization)  
-                                   -->  Storage Agent (save to clean/, move original to originals/)
-                                   -->  Audit Agent (SQLite logging with full provenance)
+project/
+├── ingest/       # Drop sensitive originals here for processing
+├── clean/        # Scrubbed outputs safe for distribution
+├── originals/    # Timestamped, immutable copies of the originals
+├── db/           # Contains processing.db audit log (WAL mode + FK constraints)
+├── logs/         # Reserved for operational logging
+└── src/          # Pipeline modules listed above
 ```
 
-### Directory Layout
-* `ingest/` — Drop sensitive images here (auto-detected).
-* `clean/` — Secure, obfuscated outputs ready for publication/distribution.
-* `originals/` — Time-stamped preserved originals (YYYYMMDDThhmmssZ__filename).
-* `db/` — `processing.db` (SQLite audit database).
+`setup.py` and the first run of `main.py` ensure these folders exist. Directory
+names, the database filename, and other defaults can be overridden through
+environment variables (`PIPELINE_INGEST_DIR`, `PIPELINE_CLEAN_DIR`,
+`PIPELINE_DB_FILENAME`, etc.). Use a `.env` file in the repo root to persist
+custom settings.
 
 ---
 
-## Agent Responsibilities
+## Operational Flow
 
-### 1) Detection Agent
-* Scans `ingest/` for new image files (JPEG, PNG, BMP, TIFF, WEBP).
-* Validates file integrity and format support.
-* Initiates processing run with operator authentication.
+1. **Setup** – run `python setup.py` (idempotent) to create directories and
+   initialise `processing.db`.
+2. **Ingest** – copy files into `ingest/`.
+3. **Configure** – launch `python main.py`, authenticate via operator name, and
+   choose a security preset or custom parameters.
+4. **Process** – the pipeline preserves originals, extracts metadata, applies
+   multi-pass LSB randomisation (plus optional noise), strips metadata, and saves
+   a cleaned copy.
+5. **Audit** – every step is captured: hashes, metadata dumps, obfuscation
+   summaries, and actions linking originals to cleaned files.
 
-### 2) Metadata Extraction Agent
-* **Comprehensive extraction**: EXIF (including GPS), IPTC, XMP, ICC profiles.
-* **Risk assessment**: Identifies transparency channels, palette modes, unusual metadata.
-* **Database preservation**: Stores complete metadata dump for legal/forensic needs.
-* Calculates SHA-256 hash of original file.
-
-### 3) Security Agent (Core Obfuscation)
-* **LSB Randomization**: Randomly flips least significant bits across all color channels.
-* **Multi-pass processing**: 2-3 passes with varying flip probabilities (15-25%).
-* **Noise injection**: Subtle random noise to disrupt frequency-domain hiding.
-* **2nd LSB targeting**: Optional second-bit randomization for aggressive mode.
-* **Format disruption**: JPEG compression artifacts to break steganographic patterns.
-
-### 4) Sanitization Agent  
-* **Complete metadata removal**: Zero EXIF/GPS/IPTC/XMP/ICC data in output.
-* **Transparency elimination**: Converts RGBA → RGB with white background.
-* **Color space normalization**: Forces RGB mode regardless of input.
-* **Format standardization**: Outputs JPEG with randomized quality (70-95%).
-
-### 5) Storage Agent
-* Creates timestamped copy in `originals/` before processing.
-* Saves cleaned version to `clean/` with secure filename.
-* Removes processed file from `ingest/` only after successful completion.
-* Maintains strict separation: never modifies files in place.
-
-### 6) Audit Agent  
-* **Complete provenance**: Links every original to its cleaned counterpart.
-* **Processing details**: Records LSB flip probability, passes applied, metadata removed.
-* **Action timeline**: Timestamps every operation with operator identification.
-* **Hash verification**: SHA-256 for both original and cleaned versions.
-* **Immutable logging**: Append-only database records for forensic integrity.
+The CLI exposes a database summary view for quick run statistics.
 
 ---
 
-## Security Configuration
+## Security Profiles (CLI Presets)
 
-### Standard Mode (Default)
-* 15% LSB flip probability
-* 2 obfuscation passes  
-* Complete metadata removal
-* JPEG output with quality 85
+| Level | LSB Probability | Passes | Noise | Notes |
+| --- | --- | --- | --- | --- |
+| 1 – Standard | 0.15 | 2 | Enabled | Balanced disruption for routine releases. |
+| 2 – High | 0.20 | 3 | Enabled | Higher certainty against stubborn LSB payloads. |
+| 3 – Maximum | 0.25 | 3 | Enabled | Most aggressive default. Consider enabling 2nd-bit targeting manually if extended. |
+| 4 – Custom | 0.05–0.30 | 1–5 | Optional | Exposes raw configuration prompts for bespoke missions. |
 
-### High Security Mode
-* 20% LSB flip probability
-* 3 obfuscation passes
-* Noise injection enabled
-* Progressive JPEG encoding
-
-### Maximum Security Mode  
-* 25% LSB flip probability
-* 3+ obfuscation passes
-* 2nd LSB randomization
-* Aggressive noise disruption
-* Quality randomization
-
-### Custom Mode
-* User-configurable flip probability (5-30%)
-* Variable pass count (1-5)
-* Selective noise application
-* Format options (JPEG/PNG)
+JPEG output (default) adds compression artefacts that further disrupt
+frequency-domain techniques. PNG output is available when lossless delivery is
+mandatory.
 
 ---
 
-## Database Schema (Core Tables)
+## Database Overview
 
-### Processing Runs
-```sql
-runs (run_id, started_at_utc, operator_name, total_files, successful_files, configuration_json)
-```
+`DatabaseManager` creates the following tables (WAL mode, FK constraints):
 
-### File Tracking  
-```sql
-files (file_id, run_id, file_type[original|cleaned], original_filename, stored_path, file_hash_sha256, image_format, created_at_utc)
-```
-
-### Metadata Preservation
-```sql
-preserved_metadata (file_id, exif_data_json, exif_gps_json, icc_profile_size, had_transparency, original_mode)
-```
-
-### Security Summary
-```sql
-obfuscation_summary (cleaned_file_id, lsb_randomization_applied, obfuscation_passes, lsb_flip_probability, metadata_stripped, format_changed)
-```
-
-### Audit Trail
-```sql  
-processing_actions (action_id, run_id, file_id, action_type, action_details_json, timestamp_utc)
-file_relationships (original_file_id, cleaned_file_id)
-```
+* `runs` – operator, timestamps, configuration JSON, success/failure counts.
+* `files` – each original and cleaned asset with hashes, dimensions, formats.
+* `file_relationships` – links originals to their cleaned counterparts.
+* `preserved_metadata` – EXIF/GPS dumps, ICC profile size, transparency status.
+* `processing_actions` – chronological log of preservation, obfuscation, ingest
+  cleanup, and error events.
+* `obfuscation_summary` – records metadata removal, pass counts, noise usage, and
+  format changes.
 
 ---
 
-## Interactive Operation
+## Testing & Validation
 
-### User Interface Flow
-1. **Configuration Setup**: Interactive prompts for security level and operator identification.
-2. **Batch Detection**: Automatic scanning of `ingest/` folder.
-3. **Processing Confirmation**: User reviews files to be processed.
-4. **Real-time Feedback**: Progress updates with security measures applied.
-5. **Completion Summary**: Statistics and verification information.
-
-### No Command-Line Arguments
-* Fully interactive guided interface
-* Context-sensitive prompts
-* Built-in help and explanations
-* Error recovery and user guidance
+Run `python test.py` to perform an end-to-end confidence check. The script embeds
+an LSB message, processes it using the production classes, and verifies the
+payload cannot be recovered afterwards.
 
 ---
 
-## Security Assurance
+## Security & Ethics
 
-### Protection Mechanisms
-* **LSB disruption** defeats most steganographic hiding
-* **Multi-pass randomization** prevents pattern recovery  
-* **Metadata elimination** removes identifying information
-* **Format normalization** adds compression artifacts
-* **Hash verification** ensures processing integrity
+* Originals and the audit database are sensitive artefacts – protect and, when
+  necessary, securely delete them according to your operational doctrine.
+* Visual anonymisation (face blurring, redaction) is outside the scope of this
+  pipeline; pair with dedicated tools when content-based identifiers must be
+  removed.
+* Intended for human-rights, journalistic, or activist work where preserving
+  evidence while protecting sources is paramount. Ensure usage complies with
+  local laws and organisational policies.
 
-### Evidence Preservation
-* **Original files untouched** until successful processing
-* **Complete metadata backup** for legal requirements
-* **Cryptographic hashes** for file integrity
-* **Immutable audit logs** for forensic analysis
-* **Full provenance chain** from source to cleaned output
-
-### Threat Model Coverage
-* **Camera fingerprinting** → Metadata removal
-* **GPS tracking** → EXIF/GPS stripping  
-* **Steganographic payloads** → LSB randomization
-* **Invisible watermarks** → Multi-pass obfuscation
-* **Format-based hiding** → Normalization to JPEG
-* **Palette steganography** → RGB conversion
-* **Transparency hiding** → Alpha channel removal
-
----
-
-## Implementation Notes
-
-* **Pure Python**: PIL/Pillow + NumPy only, no external dependencies.
-* **Cross-platform**: Windows, macOS, Linux compatibility.
-* **Memory efficient**: Processes images individually, suitable for large batches.
-* **Error resilient**: Individual file failures don't stop batch processing.
-* **Database integrity**: WAL mode with foreign key constraints.
-
----
-
-## Operational Security
-
-### File Handling
-* **Atomic operations**: Complete processing or no changes
-* **Secure deletion**: Original files removed only after verification
-* **Path validation**: Prevents directory traversal attacks
-* **Extension verification**: Validates file types before processing
-
-### Audit Requirements
-* **Operator identification**: All actions tied to authenticated user
-* **Timestamp precision**: UTC timestamps for all operations  
-* **Configuration logging**: Processing parameters recorded for reproducibility
-* **Error documentation**: Failed operations logged with details
-
----
-
-## Deployment Checklist
-
-### Initial Setup
-- [ ] Create directory structure (`ingest/`, `clean/`, `originals/`, `db/`)
-- [ ] Install Python dependencies (`pip install Pillow numpy`)
-- [ ] Verify write permissions on all directories
-- [ ] Test database creation and access
-
-### Security Verification  
-- [ ] Confirm LSB randomization is applied (visual/statistical tests)
-- [ ] Verify complete metadata removal (`exiftool` verification)
-- [ ] Test hash calculation accuracy
-- [ ] Validate audit trail completeness
-
-### Operational Testing
-- [ ] Process test images with known metadata
-- [ ] Verify original preservation integrity  
-- [ ] Test batch processing with mixed formats
-- [ ] Confirm error handling and recovery
-
----
-
-## Legal & Ethical Considerations
-
-**Intended Use**: Protection of human rights sources, journalists, and activists working in sensitive environments.
-
-**Evidence Integrity**: Complete preservation of original files with cryptographic verification maintains legal admissibility while protecting operational security.
-
-**Source Protection**: Aggressive metadata removal and steganographic disruption specifically designed to prevent source identification and location tracking.
-
-**Audit Compliance**: Full database logging provides accountability while maintaining operational security for sensitive documentation work.
-
----
-
-### Final Notes
-
-This pipeline prioritizes **source protection over convenience** — designed specifically for high-risk human rights documentation where source safety is paramount. The comprehensive obfuscation techniques may exceed typical sanitization needs but are appropriate for protecting vulnerable sources and researchers in hostile environments.
-
-Every design decision balances **maximum security** with **evidence preservation**, ensuring both operational protection and legal/forensic integrity.
+The design prioritises **maximum source safety** without sacrificing forensic
+integrity, enabling teams to publish critical evidence while shielding the people
+who captured it.
