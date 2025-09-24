@@ -19,12 +19,25 @@ class DatabaseManager:
     """Manages SQLite database for audit trail."""
 
     def __init__(self, db_path: str):
-        self.db_path = db_path
+        self.db_path = str(Path(db_path).expanduser())
         self._initialize_database()
+
+    @staticmethod
+    def _normalize_format_value(value: Optional[str]) -> str:
+        """Return a safe string representation for image formats."""
+
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        return str(value)
 
     def _initialize_database(self):
         """Create database tables if they don't exist."""
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+        db_file = Path(self.db_path)
+        parent_dir = db_file.parent
+        if parent_dir and parent_dir != Path('.'):
+            parent_dir.mkdir(parents=True, exist_ok=True)
 
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA journal_mode=WAL")
@@ -206,6 +219,9 @@ class DatabaseManager:
             """, (original_file_id, cleaned_file_id))
 
             # Record obfuscation details
+            original_fmt = self._normalize_format_value(original_format)
+            cleaned_fmt = self._normalize_format_value(cleaned_format)
+
             conn.execute("""
                 INSERT INTO obfuscation_summary (
                     cleaned_file_id, metadata_stripped, lsb_randomization_applied,
@@ -220,9 +236,9 @@ class DatabaseManager:
                 obfuscation_log.get('noise_added', False),
                 obfuscation_log.get('passes_applied', 1),
                 obfuscation_log.get('lsb_flip_probability', 0.15),
-                original_format.upper() != cleaned_format.upper(),
-                original_format,
-                cleaned_format
+                original_fmt.upper() != cleaned_fmt.upper(),
+                original_fmt,
+                cleaned_fmt
             ))
             conn.commit()
 
