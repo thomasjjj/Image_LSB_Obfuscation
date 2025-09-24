@@ -1,251 +1,130 @@
 # Secure Image Processing Pipeline
 
-A specialized tool for protecting human rights workers and investigators by removing identifying information from images through comprehensive metadata stripping and steganographic disruption.
+A hardened image scrubbing workflow designed for human-rights field work. The
+pipeline strips metadata, destroys common steganographic payloads, and keeps a
+forensic audit trail linking every original image to its obfuscated counterpart.
 
-## Overview
+## Project Goals
 
-This project is designed to clean images of their metadata and disrupt any watermarking and hidden identifiers using LSB obfuscation and file compression. It is a lossy process that modifies the files, so files will fail hash checks after going through this tool.
+* **Source protection** – remove identifying metadata, strip transparency
+  channels, and randomize pixel data so LSB payloads cannot survive.
+* **Evidence preservation** – preserve originals with cryptographic hashes and
+  store detailed audit information in SQLite for legal or research review.
+* **Operational usability** – provide a guided Rich-powered CLI that prepares
+  the workspace, processes batches, and reports the audit trail in plain
+  language.
 
-The pipeline creates an auditable chain of custody while aggressively obfuscating potential identifying information that could compromise sources or reveal sensitive locations.
+## Core Components
 
-## Threat Model
+| Path | Purpose |
+| --- | --- |
+| `main.py` | Interactive entry point. Handles setup checks, configuration prompts, and runs the batch pipeline. |
+| `setup.py` | Initialises the working directories (`ingest/`, `clean/`, `originals/`, `db/`, `logs/`) and the SQLite database. |
+| `src/SecurePipeline.py` | Orchestrates ingestion, processing, storage, and audit logging for each batch run. |
+| `src/SecureImageProcessor.py` | Performs metadata extraction, multi-pass LSB randomisation, optional noise injection, and format normalisation. |
+| `src/DatabaseManager.py` | Creates and manages the SQLite schema used to track runs, files, preserved metadata, and obfuscation details. |
+| `test.py` | End-to-end validation script that embeds a known LSB payload, runs the pipeline, and verifies the payload is destroyed. |
 
-### Metadata-Based Identification
+The `requirements.txt` file pins the runtime dependencies (Pillow, NumPy, Rich).
 
-Digital images contain extensive metadata that can expose sensitive information:
+## Directory Workflow
 
-- **EXIF Data**: Camera make/model, software versions, timestamps, camera settings
-- **GPS Coordinates**: Precise location data embedded by cameras and smartphones  
-- **IPTC/XMP Tags**: Author information, copyright details, keywords, descriptions
-- **ICC Color Profiles**: Device-specific color calibration data that can fingerprint equipment
-- **Thumbnail Images**: Often contain unedited versions of cropped or modified images
+The workspace is intentionally segregated:
 
-### Steganographic Threats
+* `ingest/` – drop sensitive input files here.
+* `clean/` – scrubbed images ready for distribution.
+* `originals/` – timestamped copies of the untouched originals.
+* `db/processing.db` – SQLite audit trail storing run metadata, file hashes, and
+  obfuscation summaries.
+* `logs/` – reserved for future operational logging.
 
-Hidden data can be embedded in images through various techniques:
-
-- **LSB Steganography**: Information hidden in least significant bits of pixel data
-- **Frequency Domain Hiding**: Data concealed in DCT coefficients (JPEG) or frequency transforms
-- **Palette-Based Hiding**: Information embedded in color palette arrangements
-- **Alpha Channel Exploitation**: Data hidden in transparency layers
-- **Format-Specific Hiding**: Exploitation of format structures (JPEG segments, PNG chunks)
-
-### Digital Watermarking
-
-Invisible identification systems that survive basic editing:
-
-- **Robust Watermarks**: Survive compression, resizing, and minor modifications
-- **Fragile Watermarks**: Detect any alteration to the image
-- **Semi-Fragile Watermarks**: Survive acceptable modifications but detect malicious changes
-- **Spread Spectrum Watermarks**: Distributed across entire image using frequency analysis
-- **Machine Learning Watermarks**: AI-generated patterns resistant to detection
-
-### Risks to Human Rights Workers
-
-These identification methods pose serious security risks:
-
-- **Source Identification**: Metadata can reveal the identity of photographers or witnesses
-- **Location Tracking**: GPS data and environmental markers can expose sensitive locations
-- **Equipment Fingerprinting**: Device-specific signatures can link multiple images to the same person
-- **Temporal Analysis**: Timestamp patterns can reveal operational schedules and movements
-- **Chain of Custody Exposure**: Processing history can reveal distribution networks
-- **Operational Security Compromise**: Hidden identifiers can bypass traditional security measures
-
-## Technical Implementation
-
-### Core Security Measures
-
-**LSB Randomization**
-- Randomly flips least significant bits across all color channels
-- Uses cryptographically secure random number generation
-- Configurable flip probability (5-30%) for varying security levels
-- Multi-pass processing to disrupt complex hiding schemes
-
-**Metadata Elimination**
-- Complete removal of EXIF, GPS, IPTC, XMP, and ICC profile data
-- Preservation of original metadata in secure audit database
-- Format normalization to eliminate structure-based hiding
-
-**Steganographic Disruption**
-- JPEG compression artifacts break frequency-domain hiding
-- Color space conversion disrupts palette-based techniques
-- Transparency removal eliminates alpha channel exploitation
-- Noise injection defeats correlation-based detection
-
-**Multi-Pass Obfuscation**
-- Multiple randomization passes with varying parameters
-- Progressive degradation of embedded patterns
-- Statistical analysis resistance through randomness accumulation
-
-### Processing Pipeline
-
-1. **Detection Agent**: Scans for supported image formats and validates integrity
-2. **Metadata Extraction Agent**: Preserves complete metadata for audit trail
-3. **Security Agent**: Applies LSB randomization and noise injection
-4. **Sanitization Agent**: Strips metadata and normalizes format
-5. **Storage Agent**: Creates timestamped preservation copies
-6. **Audit Agent**: Maintains immutable processing records
-
-### Evidence Preservation
-
-The system maintains forensic integrity while protecting operational security:
-
-- **Original Preservation**: Bit-for-bit copies with cryptographic verification
-- **Complete Audit Trail**: SQLite database with full processing history
-- **Chain of Custody**: Links between original and processed images
-- **Operator Identification**: All actions attributed to authenticated users
-- **Configuration Logging**: Processing parameters recorded for reproducibility
+All directories are created automatically by `setup.py` or during the first run
+of `main.py`. You can override their names (and the database filename) with
+environment variables such as `PIPELINE_INGEST_DIR`, `PIPELINE_CLEAN_DIR`,
+`PIPELINE_DB_FILENAME`, etc. Place overrides in a `.env` file at the project
+root for convenience.
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.7 or higher
-- Required packages: Pillow, NumPy
-
-### Setup
-
-1. Clone or download the project files
-2. Install dependencies:
+1. Install Python 3.9 or later.
+2. Optionally create a virtual environment and activate it.
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
    ```
-   pip install Pillow numpy
-   ```
-3. Run initial setup:
-   ```
-   python run_setup.py
+4. Prepare the workspace and database:
+   ```bash
+   python setup.py
    ```
 
-This creates the required directory structure:
-- `images_ingest/` - Input folder for sensitive images
-- `images_clean/` - Output folder for processed images  
-- `images_originals/` - Preserved original files
-- `db/` - SQLite audit database
-- `logs/` - Processing logs
+The setup script is idempotent; rerunning it safely recreates any missing
+folders and reinitialises the SQLite schema.
 
-## Usage
+## Running the Pipeline
 
-### Interactive Processing
-
-1. Place sensitive images in the `images_ingest/` folder
-2. Run the main application:
-   ```
+1. Stage images in the ingest directory.
+2. Launch the CLI:
+   ```bash
    python main.py
    ```
-3. Configure security parameters through interactive prompts
-4. Review files to be processed and confirm operation
-5. Retrieve cleaned images from `images_clean/` folder
+3. Follow the prompts to select a security level or customise parameters. The
+   CLI presents options for LSB flip probability, number of passes, optional
+   noise, and output format (JPEG with randomised quality or PNG).
+4. Confirm the batch to start processing. The tool displays live progress and
+   records each step in the database.
+5. Retrieve cleaned files from `clean/` and archive the originals and database
+   as required by your operational policy.
 
-### Security Levels
+### Security Profiles
 
-**Standard Mode** (Default)
-- 15% LSB flip probability
-- 2 obfuscation passes
-- Complete metadata removal
-- JPEG output with quality 85
+| Mode | LSB Flip Probability | Passes | Noise | Notes |
+| --- | --- | --- | --- | --- |
+| Standard | 0.15 | 2 | Enabled | Balanced protection for general use. |
+| High | 0.20 | 3 | Enabled | Adds more aggressive LSB disruption. |
+| Maximum | 0.25 | 3 | Enabled | Preserves the default behaviour but with additional emphasis on bit randomisation. |
+| Custom | 0.05–0.30 | 1–5 | Optional | Fine-grained control over every parameter. |
 
-**High Security Mode**  
-- 20% LSB flip probability
-- 3 obfuscation passes
-- Noise injection enabled
-- Progressive JPEG encoding
+JPEG output introduces compression artefacts that further disturb frequency
+based steganography. PNG output is available for workflows that require
+lossless delivery at the expense of reduced obfuscation strength.
 
-**Maximum Security Mode**
-- 25% LSB flip probability  
-- 3+ obfuscation passes
-- Multi-bit randomization
-- Aggressive noise disruption
+## Database & Audit Trail
 
-**Custom Mode**
-- User-configurable parameters
-- Variable pass count (1-5)
-- Adjustable flip probability (5-30%)
-- Format selection options
+Every run captures:
 
-## Important Security Considerations
+* Operator name, configuration JSON, and timestamps.
+* SHA-256 hashes, image dimensions, and formats for both original and cleaned
+  assets.
+* Preserved metadata dumps (EXIF, GPS, ICC profile size, transparency details).
+* Obfuscation summaries linking original and cleaned files, including format
+  changes and pass counts.
+* Action logs documenting preservation, obfuscation, ingest cleanup, and any
+  processing errors.
 
-### Operational Security
+The Rich CLI can show recent run statistics via the “View database summary”
+menu option.
 
-- Only process images you have explicit permission to modify
-- Original files are preserved but contain sensitive metadata
-- Secure deletion of `images_originals/` may be required based on threat model
-- Database contains complete processing history and should be protected accordingly
+## Verification Tools
 
-### Limitations
+`test.py` offers an automated confidence check. It creates or accepts an image,
+embeds a secret message with a simple LSB algorithm, runs the pipeline in a
+temporary workspace, and confirms the message cannot be recovered afterwards.
+Run it with:
 
-- Cannot detect or remove unknown steganographic methods
-- Some watermarking techniques may survive processing
-- Visual inspection may still reveal identifying features
-- Does not address content-based identification (facial recognition, landmarks)
-
-### Legal and Ethical Use
-
-This tool is intended for:
-- Protection of human rights sources and witnesses
-- Journalist source protection in hostile environments  
-- Activist operational security in authoritarian contexts
-- Legal evidence processing with proper chain of custody
-
-### File Integrity Warning
-
-Processed images will fail hash verification against originals. This is intentional and necessary for security. The audit database maintains cryptographic hashes of both original and processed files for verification purposes.
-
-## Database Schema
-
-The SQLite audit database maintains:
-
-- **Processing Runs**: Timestamps, operators, configurations, statistics
-- **File Records**: Original and cleaned file information with hashes  
-- **Metadata Preservation**: Complete EXIF/GPS/IPTC data from originals
-- **Processing Actions**: Detailed log of all operations performed
-- **Obfuscation Summary**: Security measures applied to each image
-- **File Relationships**: Links between original and processed files
-
-## Directory Structure
-
-```
-project/
-├── main.py                    # Interactive processing interface
-├── run_setup.py              # Standalone setup script  
-├── setup.py                  # Setup module
-├── config.json               # Configuration templates
-├── src/
-│   ├── SecurePipeline.py     # Main pipeline orchestrator
-│   ├── SecureImageProcessor.py # Core obfuscation engine
-│   └── DatabaseManager.py    # SQLite audit trail
-├── images_ingest/            # Input: sensitive images
-├── images_clean/             # Output: processed images
-├── images_originals/         # Preserved originals
-├── db/                       # SQLite database
-└── logs/                     # Processing logs
+```bash
+python test.py [optional_path_to_image]
 ```
 
-## Technical Requirements
+## Operational Guidance
 
-- **Python Version**: 3.7+
-- **Memory**: Sufficient for largest image in batch
-- **Storage**: 3x image size (original + processed + preserved copy)
-- **Permissions**: Read/write access to all directories
-- **Platform**: Cross-platform (Windows, macOS, Linux)
+* Process only material you are authorised to modify; originals contain highly
+  sensitive information.
+* Scrubbed files no longer match the original hash – this is expected and is
+  recorded in the database for forensic integrity.
+* Visual content (faces, landmarks) is not altered; pair this tool with
+  redaction or blurring where appropriate.
+* Protect the database and originals directories as they contain sensitive
+  provenance data.
 
-## Threat Coverage
-
-This tool addresses the following identification vectors:
-
-- Camera fingerprinting through metadata removal
-- GPS tracking through coordinate stripping
-- Steganographic payloads through LSB randomization  
-- Invisible watermarks through multi-pass obfuscation
-- Format-based hiding through normalization
-- Palette steganography through RGB conversion
-- Transparency exploitation through alpha channel removal
-
-## Forensic Compliance
-
-The audit trail maintains evidence standards:
-
-- Immutable database records with foreign key constraints
-- Cryptographic hash verification for all files
-- Complete metadata preservation for legal requirements  
-- Operator identification and timestamp precision
-- Configuration documentation for reproducibility
-- Error logging with detailed failure analysis
+The project prioritises source safety over fidelity, enabling field teams to
+share crucial evidence without exposing the individuals who captured it.
