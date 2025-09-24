@@ -16,11 +16,23 @@ import numpy as np
 import random
 from src.SecureImageProcessor import SecureImageProcessor
 from src.DatabaseManager import DatabaseManager
+from rich.console import Console
+from rich.markup import escape
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    BarColumn,
+    TextColumn,
+    TimeElapsedColumn,
+    TimeRemainingColumn,
+)
 
 class SecurePipeline:
     """Main pipeline orchestrator."""
 
-    def __init__(self, base_dir: str = "."):
+    PROMPT_STYLE = "bold cyan"
+
+    def __init__(self, base_dir: str = ".", console: Optional[Console] = None):
         provided_base = Path(base_dir).expanduser().resolve()
         base_dir_override = os.getenv("PIPELINE_BASE_DIR")
         if base_dir_override:
@@ -32,6 +44,8 @@ class SecurePipeline:
         else:
             resolved_base = provided_base
         self.base_dir = resolved_base
+
+        self.console = console or Console()
 
         self.directory_names = {
             'ingest': os.getenv("PIPELINE_INGEST_DIR", "ingest"),
@@ -66,6 +80,11 @@ class SecurePipeline:
         }
 
         self.processor = SecureImageProcessor(self.config)
+
+    def _prompt(self, message: str, *, style: str = PROMPT_STYLE) -> str:
+        """Display a styled prompt to the user."""
+
+        return self.console.input(f"[{style}]{escape(message)}[/]")
 
     @staticmethod
     def _env_float(
@@ -136,24 +155,30 @@ class SecurePipeline:
 
     def get_user_configuration(self):
         """Interactive configuration setup."""
-        print("\n=== SECURE IMAGE PROCESSING PIPELINE ===")
-        print("Configuration Setup\n")
+        self.console.print("\n[bold cyan]=== SECURE IMAGE PROCESSING PIPELINE ===[/]")
+        self.console.print("[bold]Configuration Setup[/]\n")
 
         # Operator name
-        operator_prompt = f"Enter operator name (for audit trail) [{self.config['operator_name']}]: "
-        operator = input(operator_prompt).strip()
+        operator_prompt = (
+            f"Enter operator name (for audit trail) [{self.config['operator_name']}]: "
+        )
+        operator = self._prompt(operator_prompt).strip()
         if operator:
             self.config['operator_name'] = operator
 
         # Security level
-        print("\nSecurity Level:")
-        print("1. Standard (15% LSB flip, 2 passes)")
-        print("2. High (20% LSB flip, 3 passes)")
-        print("3. Maximum (25% LSB flip, 3 passes + extra noise)")
-        print("4. Custom")
+        self.console.print("\n[bold]Security Level:[/]")
+        self.console.print("1. Standard (15% LSB flip, 2 passes)")
+        self.console.print("2. High (20% LSB flip, 3 passes)")
+        self.console.print("3. Maximum (25% LSB flip, 3 passes + extra noise)")
+        self.console.print("4. Custom")
 
         default_level = str(self.default_security_level)
-        level = input(f"Choose security level (1-4) [{default_level}]: ").strip() or default_level
+        level = (
+            self._prompt(f"Choose security level (1-4) [{default_level}]: ")
+            .strip()
+            or default_level
+        )
 
         if level == "2":
             self.config.update({
@@ -170,14 +195,14 @@ class SecurePipeline:
             # Custom configuration
             try:
                 prob_default = f"{self.config['lsb_flip_probability']:.2f}"
-                prob_input = input(
+                prob_input = self._prompt(
                     f"LSB flip probability (0.05-0.30) [{prob_default}]: "
                 ).strip()
                 if prob_input:
                     prob = float(prob_input)
                     self.config['lsb_flip_probability'] = max(0.05, min(0.30, prob))
 
-                passes_input = input(
+                passes_input = self._prompt(
                     f"Obfuscation passes (1-5) [{self.config['obfuscation_passes']}]: "
                 ).strip()
                 if passes_input:
@@ -185,28 +210,36 @@ class SecurePipeline:
                     self.config['obfuscation_passes'] = max(1, min(5, passes))
 
                 noise_default = 'y' if self.config['add_noise'] else 'n'
-                noise_input = input(
-                    f"Add noise disruption? (y/n) [{noise_default}]: "
-                ).strip().lower()
+                noise_input = (
+                    self._prompt(f"Add noise disruption? (y/n) [{noise_default}]: ")
+                    .strip()
+                    .lower()
+                )
                 if noise_input:
                     self.config['add_noise'] = not noise_input.startswith('n')
             except ValueError:
-                print("Invalid input, using defaults")
+                self.console.print("[bold red]Invalid input, using defaults[/]")
 
         # Output format
-        print(f"\nOutput format:")
-        print("1. JPEG (recommended - adds compression artifacts)")
-        print("2. PNG (lossless)")
+        self.console.print("\n[bold]Output format:[/]")
+        self.console.print("1. JPEG (recommended - adds compression artifacts)")
+        self.console.print("2. PNG (lossless)")
 
         format_default = "1" if self.config['output_format'] == 'JPEG' else "2"
-        format_choice = input(f"Choose format (1-2) [{format_default}]: ").strip() or format_default
+        format_choice = (
+            self._prompt(f"Choose format (1-2) [{format_default}]: ")
+            .strip()
+            or format_default
+        )
         if format_choice == "2":
             self.config['output_format'] = 'PNG'
-        
+        elif format_choice == "1":
+            self.config['output_format'] = 'JPEG'
+
         # JPEG quality if needed
         if self.config['output_format'] == 'JPEG':
             try:
-                quality_input = input(
+                quality_input = self._prompt(
                     f"JPEG quality (70-95) [{self.config['jpeg_quality']}]: "
                 ).strip()
                 if quality_input:
@@ -215,20 +248,26 @@ class SecurePipeline:
                     quality = self.config['jpeg_quality']
                 self.config['jpeg_quality'] = max(70, min(95, quality))
             except ValueError:
-                pass
+                self.console.print(
+                    "[bold red]Invalid quality value, keeping previous setting.[/]"
+                )
 
-        print(f"\n=== CONFIGURATION SUMMARY ===")
-        print(f"Operator: {self.config['operator_name']}")
-        print(f"LSB flip probability: {self.config['lsb_flip_probability']}")
-        print(f"Obfuscation passes: {self.config['obfuscation_passes']}")
-        print(f"Add noise: {self.config['add_noise']}")
-        print(f"Output format: {self.config['output_format']}")
+        self.console.print("\n[bold cyan]=== CONFIGURATION SUMMARY ===[/]")
+        self.console.print(f"Operator: {self.config['operator_name']}")
+        self.console.print(f"LSB flip probability: {self.config['lsb_flip_probability']}")
+        self.console.print(f"Obfuscation passes: {self.config['obfuscation_passes']}")
+        self.console.print(f"Add noise: {self.config['add_noise']}")
+        self.console.print(f"Output format: {self.config['output_format']}")
         if self.config['output_format'] == 'JPEG':
-            print(f"JPEG quality: {self.config['jpeg_quality']}")
+            self.console.print(f"JPEG quality: {self.config['jpeg_quality']}")
 
-        confirm = input("\nProceed with this configuration? (y/n) [y]: ").lower()
+        confirm = (
+            self._prompt("\nProceed with this configuration? (y/n) [y]: ", style="bold yellow")
+            .strip()
+            .lower()
+        )
         if confirm.startswith('n'):
-            print("Configuration cancelled.")
+            self.console.print("[bold red]Configuration cancelled.[/]")
             return False
 
         # Update processor with new config
@@ -247,10 +286,17 @@ class SecurePipeline:
 
         return sorted(image_files)
 
-    def process_single_image(self, input_path: Path, run_id: int) -> bool:
+    def process_single_image(
+        self,
+        input_path: Path,
+        run_id: int,
+        progress: Optional[Progress] = None,
+    ) -> bool:
         """Process a single image through the secure pipeline."""
+        printer = progress.console.print if progress else self.console.print
+        file_name = escape(input_path.name)
         try:
-            print(f"Processing: {input_path.name}")
+            printer(f"[bold magenta]Processing:[/] {file_name}")
 
             # Generate timestamped filename
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -354,16 +400,25 @@ class SecurePipeline:
                     'ingest_path': str(input_path)
                 })
 
-                print(f"  ✓ Original preserved: {original_path.name}")
-                print(f"  ✓ Cleaned version: {clean_path.name}")
-                print(
-                    f"  ✓ Metadata stripped: {bool(preserved_metadata['exif_data'] or preserved_metadata['other_info'])}")
-                print(f"  ✓ LSB randomization: {obfuscation_log['passes_applied']} passes")
+                preserved_name = escape(original_path.name)
+                clean_name = escape(clean_path.name)
+                metadata_removed = bool(
+                    preserved_metadata['exif_data'] or preserved_metadata['other_info']
+                )
+                metadata_message = "Yes" if metadata_removed else "No metadata present"
+
+                printer(f"[green]  ✓ Original preserved:[/] {preserved_name}")
+                printer(f"[green]  ✓ Cleaned version:[/] {clean_name}")
+                printer(f"[green]  ✓ Metadata stripped:[/] {metadata_message}")
+                printer(
+                    f"[green]  ✓ LSB randomization:[/] {obfuscation_log['passes_applied']} passes"
+                )
 
                 return True
 
         except Exception as e:
-            print(f"  ✗ Error processing {input_path.name}: {str(e)}")
+            error_message = escape(str(e))
+            printer(f"[bold red]  ✗ Error processing {file_name}: {error_message}[/]")
             # Record failure
             self.db.record_action(run_id, 0, 'processing_error', {
                 'file': str(input_path),
@@ -376,44 +431,61 @@ class SecurePipeline:
         image_files = self.scan_ingest_folder()
 
         if not image_files:
-            print("No images found in ingest folder.")
+            self.console.print("[bold yellow]No images found in ingest folder.[/]")
             return
 
-        print(f"\nFound {len(image_files)} image(s) to process:")
+        self.console.print(f"\n[bold]Found {len(image_files)} image(s) to process:[/]")
         for img_file in image_files:
-            print(f"  - {img_file.name}")
+            self.console.print(f"  - {escape(img_file.name)}", style="dim")
 
-        proceed = input(f"\nProcess all {len(image_files)} images? (y/n) [y]: ").lower()
+        proceed = (
+            self._prompt(f"\nProcess all {len(image_files)} images? (y/n) [y]: ")
+            .strip()
+            .lower()
+        )
         if proceed.startswith('n'):
-            print("Processing cancelled.")
+            self.console.print("[bold yellow]Processing cancelled.[/]")
             return
 
         # Start processing run
         run_id = self.db.start_run(self.config['operator_name'], self.config)
 
-        print(f"\n=== PROCESSING BATCH (Run ID: {run_id}) ===")
+        self.console.print(f"\n[bold cyan]=== PROCESSING BATCH (Run ID: {run_id}) ===[/]")
 
         stats = {'total': len(image_files), 'successful': 0, 'failed': 0}
 
-        for img_file in image_files:
-            if self.process_single_image(img_file, run_id):
-                stats['successful'] += 1
-            else:
-                stats['failed'] += 1
-            print()  # Empty line between files
+        progress_columns = [
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(bar_width=None),
+            TextColumn("{task.completed}/{task.total}"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+        ]
+
+        with Progress(*progress_columns, console=self.console, transient=True) as progress:
+            task_id = progress.add_task("Processing images", total=len(image_files))
+            for img_file in image_files:
+                progress.update(task_id, description=f"Processing {escape(img_file.name)}")
+                if self.process_single_image(img_file, run_id, progress=progress):
+                    stats['successful'] += 1
+                else:
+                    stats['failed'] += 1
+                progress.advance(task_id)
+                progress.console.print()
 
         # Finish run
         self.db.finish_run(run_id, stats)
 
-        print("=== PROCESSING COMPLETE ===")
-        print(f"Total files: {stats['total']}")
-        print(f"Successfully processed: {stats['successful']}")
-        print(f"Failed: {stats['failed']}")
+        self.console.print("[bold green]=== PROCESSING COMPLETE ===[/]")
+        self.console.print(f"Total files: {stats['total']}")
+        self.console.print(f"Successfully processed: {stats['successful']}")
+        self.console.print(f"Failed: {stats['failed']}")
 
         if stats['successful'] > 0:
-            print(f"\nCleaned images available in: {self.directories['clean']}")
-            print(f"Originals preserved in: {self.directories['originals']}")
-            print(f"Audit trail in database: {self.db_path}")
+            self.console.print(f"\nCleaned images available in: {escape(str(self.directories['clean']))}")
+            self.console.print(f"Originals preserved in: {escape(str(self.directories['originals']))}")
+            self.console.print(f"Audit trail in database: {escape(str(self.db_path))}")
 
     def show_database_summary(self):
         """Display summary of database contents."""
@@ -439,15 +511,17 @@ class SecurePipeline:
                 """)
                 recent_runs = cursor.fetchall()
 
-                print("\n=== DATABASE SUMMARY ===")
-                print(f"Total runs: {run_stats[0] or 0}")
-                print(f"Total files processed: {run_stats[1] or 0}")
-                print(f"Successfully processed: {run_stats[2] or 0}")
+                self.console.print("\n[bold cyan]=== DATABASE SUMMARY ===[/]")
+                self.console.print(f"Total runs: {run_stats[0] or 0}")
+                self.console.print(f"Total files processed: {run_stats[1] or 0}")
+                self.console.print(f"Successfully processed: {run_stats[2] or 0}")
 
                 if recent_runs:
-                    print(f"\nRecent runs:")
+                    self.console.print(f"\nRecent runs:")
                     for run in recent_runs:
-                        print(f"  Run {run[0]}: {run[1][:19]} - {run[2]} - {run[4]}/{run[3]} files")
+                        self.console.print(
+                            f"  Run {run[0]}: {run[1][:19]} - {run[2]} - {run[4]}/{run[3]} files"
+                        )
 
         except Exception as e:
-            print(f"Error reading database: {e}")
+            self.console.print(f"[bold red]Error reading database: {escape(str(e))}[/]")
