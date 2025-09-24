@@ -32,6 +32,20 @@ from src.SecureImageProcessor import SecureImageProcessor
 from src.DatabaseManager import DatabaseManager
 from src.SecurePipeline import SecurePipeline
 
+from rich.console import Console
+from rich.markup import escape
+
+
+console = Console()
+print = console.print  # type: ignore[assignment]
+PROMPT_STYLE = "bold cyan"
+
+
+def prompt(message: str, *, style: str = PROMPT_STYLE) -> str:
+    """Display a styled prompt and return the user's response."""
+
+    return console.input(f"[{style}]{escape(message)}[/]")
+
 
 def load_env_file(env_path: Path) -> None:
     """Load environment variables from a ``.env`` file if present."""
@@ -151,18 +165,18 @@ def check_dependencies():
 
 def show_welcome_message():
     """Display welcome message and basic usage info."""
-    print("=" * 60)
-    print("SECURE IMAGE PROCESSING PIPELINE")
-    print("Human Rights Documentation Tool")
-    print("=" * 60)
+    print("=" * 60, style="bold cyan")
+    print("SECURE IMAGE PROCESSING PIPELINE", style="bold white")
+    print("Human Rights Documentation Tool", style="bold white")
+    print("=" * 60, style="bold cyan")
     print()
-    print("This tool securely processes sensitive images by:")
-    print("✓ Removing all metadata (EXIF, GPS, etc.)")
-    print("✓ Applying LSB randomization to disrupt hidden content")
-    print("✓ Preserving originals with complete audit trail")
-    print("✓ Creating clean versions safe for distribution")
+    print("This tool securely processes sensitive images by:", style="bold")
+    print("✓ Removing all metadata (EXIF, GPS, etc.)", style="green")
+    print("✓ Applying LSB randomization to disrupt hidden content", style="green")
+    print("✓ Preserving originals with complete audit trail", style="green")
+    print("✓ Creating clean versions safe for distribution", style="green")
     print()
-    print("Usage:")
+    print("Usage:", style="bold")
     print("1. Place images in the 'ingest/' folder")
     print("2. Run this program and follow the interactive prompts")
     print("3. Collect cleaned images from the 'clean/' folder")
@@ -194,17 +208,17 @@ def main():
     missing_dirs = check_setup_required(base_dir)
 
     if missing_dirs:
-        print(f"Missing directories: {', '.join(missing_dirs)}")
+        print(f"Missing directories: {', '.join(missing_dirs)}", style="yellow")
 
         if len(missing_dirs) >= 3:  # If multiple dirs missing, probably first run
-            response = input("Run initial setup? (y/n) [y]: ").lower()
+            response = prompt("Run initial setup? (y/n) [y]: ").strip().lower()
             if not response.startswith('n'):
                 if not run_initial_setup(base_dir):
                     print("Setup failed. Exiting.")
                     sys.exit(1)
 
                 # Brief pause to let user read setup output
-                input("\nPress Enter to continue to main interface...")
+                prompt("\nPress Enter to continue to main interface...", style="dim")
         else:
             # Just create missing directories
             print("Creating missing directories...")
@@ -219,7 +233,7 @@ def main():
 
     # Initialize pipeline
     try:
-        pipeline = SecurePipeline(str(base_dir))
+        pipeline = SecurePipeline(str(base_dir), console=console)
     except Exception as e:
         print(f"Error initializing pipeline: {e}")
         print("Please ensure all required files are present in src/ directory.")
@@ -235,7 +249,7 @@ def main():
         print("4. Run setup again")
         print("5. Exit")
 
-        choice = input("\nSelect option (1-5): ").strip()
+        choice = prompt("\nSelect option (1-5): ").strip()
 
         if choice == "1":
             # Configure and process
