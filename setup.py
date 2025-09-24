@@ -52,15 +52,25 @@ PIPELINE_DIRECTORIES: Dict[str, str] = {
     'logs': os.getenv("PIPELINE_LOG_DIR", "logs"),
 }
 
-REQUIRED_DIRECTORIES = ("src",) + tuple(PIPELINE_DIRECTORIES.values())
-"""Directories that must exist for the pipeline to operate correctly."""
+WORKSPACE_DIRECTORIES = tuple(PIPELINE_DIRECTORIES.values())
+"""Directories that must exist in the configured workspace."""
+
+
+def _format_directory_display(base_dir: Path, directory: Path) -> str:
+    """Return a human-friendly representation of a directory path."""
+
+    try:
+        relative = directory.relative_to(base_dir)
+        return f"{relative}/"
+    except ValueError:
+        return f"{directory}/"
 
 
 def check_setup_required(base_dir: Path = BASE_DIR) -> List[str]:
-    """Return a list of required directories that are missing."""
+    """Return a list of workspace directories that are missing."""
 
     missing: List[str] = []
-    for directory in REQUIRED_DIRECTORIES:
+    for directory in WORKSPACE_DIRECTORIES:
         if not (base_dir / directory).exists():
             missing.append(directory)
     return missing
@@ -69,23 +79,16 @@ def check_setup_required(base_dir: Path = BASE_DIR) -> List[str]:
 def _ensure_required_directories(base_dir: Path = BASE_DIR) -> None:
     """Create the standard directory structure if it is absent."""
 
-    for directory in REQUIRED_DIRECTORIES:
+    for directory in WORKSPACE_DIRECTORIES:
         path = base_dir / directory
-
-        if directory == "src":
-            if not path.exists():
-                raise FileNotFoundError(
-                    "Required directory 'src' is missing from the project root."
-                )
-            print(f"• {directory}/ already exists")
-            continue
+        display_name = _format_directory_display(base_dir, path)
 
         if path.exists():
-            print(f"• {directory}/ already exists")
+            print(f"• {display_name} already exists")
             continue
 
         path.mkdir(parents=True, exist_ok=True)
-        print(f"✓ Created {directory}/")
+        print(f"✓ Created {display_name}")
 
 
 def _write_ingest_readme(base_dir: Path = BASE_DIR) -> None:
@@ -94,14 +97,16 @@ def _write_ingest_readme(base_dir: Path = BASE_DIR) -> None:
     ingest_readme = base_dir / PIPELINE_DIRECTORIES['ingest'] / "README.txt"
 
     if ingest_readme.exists():
-        print(f"• {ingest_readme.relative_to(base_dir)} already exists")
+        display_name = _format_directory_display(base_dir, ingest_readme)
+        print(f"• {display_name} already exists")
         return
 
     ingest_readme.write_text(
         "Place sensitive images here for processing.\n"
         "Supported formats: JPEG, PNG, BMP, TIFF, WebP\n"
     )
-    print(f"✓ Created {ingest_readme.relative_to(base_dir)}")
+    display_name = _format_directory_display(base_dir, ingest_readme)
+    print(f"✓ Created {display_name}")
 
 
 def _initialize_database(base_dir: Path = BASE_DIR) -> None:

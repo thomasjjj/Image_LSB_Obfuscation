@@ -74,21 +74,25 @@ def load_env_file(env_path: Path) -> None:
         print(f"Warning: unable to read environment file {env_path}: {exc}")
 
 
-def check_setup_required(base_dir: Path):
-    """Check if initial setup is required for the configured directories."""
+def _workspace_directory_names() -> List[str]:
+    """Return the configured workspace directory names."""
 
-    required_dirs = [
+    return [
         os.getenv("PIPELINE_INGEST_DIR", "ingest"),
         os.getenv("PIPELINE_CLEAN_DIR", "clean"),
         os.getenv("PIPELINE_ORIGINALS_DIR", "originals"),
         os.getenv("PIPELINE_DB_DIR", "db"),
         os.getenv("PIPELINE_LOG_DIR", "logs"),
-        "src",
     ]
 
+
+def check_setup_required(base_dir: Path):
+    """Check if initial setup is required for the configured directories."""
+
     missing_dirs = []
-    for dirname in required_dirs:
-        if not (base_dir / dirname).exists():
+    for dirname in _workspace_directory_names():
+        dir_path = base_dir / dirname
+        if not dir_path.exists():
             missing_dirs.append(dirname)
 
     return missing_dirs
@@ -113,28 +117,31 @@ def run_initial_setup(base_dir: Path):
         return create_basic_directories(base_dir)
 
 
+def _format_directory_display(base_dir: Path, dir_path: Path) -> str:
+    """Return a user-friendly directory name for status messages."""
+
+    try:
+        relative_name = dir_path.relative_to(base_dir)
+        return f"{relative_name}/"
+    except ValueError:
+        return f"{dir_path}/"
+
+
 def create_basic_directories(base_dir: Path):
     """Fallback directory creation if setup.py is not available."""
 
-    directories = [
-        os.getenv("PIPELINE_INGEST_DIR", "ingest"),
-        os.getenv("PIPELINE_CLEAN_DIR", "clean"),
-        os.getenv("PIPELINE_ORIGINALS_DIR", "originals"),
-        os.getenv("PIPELINE_DB_DIR", "db"),
-        os.getenv("PIPELINE_LOG_DIR", "logs"),
-        "src",
-    ]
+    directories = _workspace_directory_names()
 
     try:
         for dirname in directories:
             dir_path = base_dir / dirname
-            relative_name = dir_path.relative_to(base_dir)
+            display_name = _format_directory_display(base_dir, dir_path)
             if dir_path.exists():
-                print(f"• {relative_name}/ already exists")
+                print(f"• {display_name} already exists")
                 continue
 
             dir_path.mkdir(parents=True, exist_ok=True)
-            print(f"✓ Created {relative_name}/")
+            print(f"✓ Created {display_name}")
 
         # Create basic README for ingest
         ingest_dir = base_dir / os.getenv("PIPELINE_INGEST_DIR", "ingest")
@@ -225,8 +232,8 @@ def main():
             for dirname in missing_dirs:
                 dir_path = base_dir / dirname
                 dir_path.mkdir(parents=True, exist_ok=True)
-                relative_name = dir_path.relative_to(base_dir)
-                print(f"✓ Created {relative_name}/")
+                display_name = _format_directory_display(base_dir, dir_path)
+                print(f"✓ Created {display_name}")
 
     # Show welcome message
     show_welcome_message()

@@ -402,9 +402,10 @@ class SecurePipeline:
 
                 preserved_name = escape(original_path.name)
                 clean_name = escape(clean_path.name)
-                metadata_removed = bool(
-                    preserved_metadata['exif_data'] or preserved_metadata['other_info']
-                )
+                metadata_removed = any(
+                    preserved_metadata.get(key)
+                    for key in ('exif_data', 'exif_gps', 'other_info')
+                ) or bool(preserved_metadata.get('icc_profile'))
                 metadata_message = "Yes" if metadata_removed else "No metadata present"
 
                 printer(f"[green]  ✓ Original preserved:[/] {preserved_name}")
