@@ -21,28 +21,118 @@ class SecurePipeline:
     """Main pipeline orchestrator."""
 
     def __init__(self, base_dir: str = "."):
-        self.base_dir = Path(base_dir)
+        provided_base = Path(base_dir).expanduser().resolve()
+        base_dir_override = os.getenv("PIPELINE_BASE_DIR")
+        if base_dir_override:
+            override_candidate = Path(base_dir_override).expanduser()
+            if override_candidate.is_absolute():
+                resolved_base = override_candidate.resolve()
+            else:
+                resolved_base = (provided_base / override_candidate).resolve()
+        else:
+            resolved_base = provided_base
+        self.base_dir = resolved_base
+
+        self.directory_names = {
+            'ingest': os.getenv("PIPELINE_INGEST_DIR", "ingest"),
+            'clean': os.getenv("PIPELINE_CLEAN_DIR", "clean"),
+            'originals': os.getenv("PIPELINE_ORIGINALS_DIR", "originals"),
+            'db': os.getenv("PIPELINE_DB_DIR", "db"),
+            'logs': os.getenv("PIPELINE_LOG_DIR", "logs"),
+        }
+        self.directories = {
+            key: self.base_dir / Path(name)
+            for key, name in self.directory_names.items()
+        }
+
+        self.db_filename = os.getenv("PIPELINE_DB_FILENAME", "processing.db")
+        self.db_path = self.directories['db'] / self.db_filename
+
         self.setup_directories()
 
         # Initialize components
-        self.db = DatabaseManager(str(self.base_dir / "db" / "processing.db"))
+        self.db = DatabaseManager(str(self.db_path))
+
+        self.default_security_level = self._env_int("PIPELINE_DEFAULT_SECURITY_LEVEL", 1, 1, 4)
 
         # Default configuration
         self.config = {
-            'lsb_flip_probability': 0.15,
-            'obfuscation_passes': 2,
-            'add_noise': True,
-            'output_format': 'JPEG',
-            'jpeg_quality': 85,
-            'operator_name': 'Anonymous'
+            'lsb_flip_probability': self._env_float("PIPELINE_LSB_FLIP_PROBABILITY", 0.15, 0.05, 0.30),
+            'obfuscation_passes': self._env_int("PIPELINE_OBFUSCATION_PASSES", 2, 1, 5),
+            'add_noise': self._env_bool("PIPELINE_ADD_NOISE", True),
+            'output_format': self._validate_output_format(os.getenv("PIPELINE_OUTPUT_FORMAT", "JPEG")),
+            'jpeg_quality': self._env_int("PIPELINE_JPEG_QUALITY", 85, 70, 95),
+            'operator_name': os.getenv("PIPELINE_DEFAULT_OPERATOR", "Anonymous")
         }
 
         self.processor = SecureImageProcessor(self.config)
 
+    @staticmethod
+    def _env_float(
+        var_name: str,
+        default: float,
+        minimum: Optional[float] = None,
+        maximum: Optional[float] = None,
+    ) -> float:
+        value = os.getenv(var_name)
+        if value is None:
+            return default
+        try:
+            parsed = float(value)
+        except ValueError:
+            return default
+
+        if minimum is not None:
+            parsed = max(minimum, parsed)
+        if maximum is not None:
+            parsed = min(maximum, parsed)
+        return parsed
+
+    @staticmethod
+    def _env_int(
+        var_name: str,
+        default: int,
+        minimum: Optional[int] = None,
+        maximum: Optional[int] = None,
+    ) -> int:
+        value = os.getenv(var_name)
+        if value is None:
+            return default
+        try:
+            parsed = int(value)
+        except ValueError:
+            return default
+
+        if minimum is not None:
+            parsed = max(minimum, parsed)
+        if maximum is not None:
+            parsed = min(maximum, parsed)
+        return parsed
+
+    @staticmethod
+    def _env_bool(var_name: str, default: bool) -> bool:
+        value = os.getenv(var_name)
+        if value is None:
+            return default
+
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+        return default
+
+    @staticmethod
+    def _validate_output_format(value: str) -> str:
+        normalized = (value or "").strip().upper()
+        if normalized not in {"JPEG", "PNG"}:
+            return "JPEG"
+        return normalized
+
     def setup_directories(self):
         """Create required directory structure."""
-        for dirname in ['ingest', 'clean', 'originals', 'db', 'logs']:
-            (self.base_dir / dirname).mkdir(exist_ok=True)
+        for path in self.directories.values():
+            path.mkdir(parents=True, exist_ok=True)
 
     def get_user_configuration(self):
         """Interactive configuration setup."""
@@ -50,7 +140,8 @@ class SecurePipeline:
         print("Configuration Setup\n")
 
         # Operator name
-        operator = input("Enter operator name (for audit trail): ").strip()
+        operator_prompt = f"Enter operator name (for audit trail) [{self.config['operator_name']}]: "
+        operator = input(operator_prompt).strip()
         if operator:
             self.config['operator_name'] = operator
 
@@ -61,7 +152,8 @@ class SecurePipeline:
         print("3. Maximum (25% LSB flip, 3 passes + extra noise)")
         print("4. Custom")
 
-        level = input("Choose security level (1-4) [1]: ").strip() or "1"
+        default_level = str(self.default_security_level)
+        level = input(f"Choose security level (1-4) [{default_level}]: ").strip() or default_level
 
         if level == "2":
             self.config.update({
@@ -77,14 +169,27 @@ class SecurePipeline:
         elif level == "4":
             # Custom configuration
             try:
-                prob = float(input("LSB flip probability (0.05-0.30) [0.15]: ") or "0.15")
-                self.config['lsb_flip_probability'] = max(0.05, min(0.30, prob))
+                prob_default = f"{self.config['lsb_flip_probability']:.2f}"
+                prob_input = input(
+                    f"LSB flip probability (0.05-0.30) [{prob_default}]: "
+                ).strip()
+                if prob_input:
+                    prob = float(prob_input)
+                    self.config['lsb_flip_probability'] = max(0.05, min(0.30, prob))
 
-                passes = int(input("Obfuscation passes (1-5) [2]: ") or "2")
-                self.config['obfuscation_passes'] = max(1, min(5, passes))
+                passes_input = input(
+                    f"Obfuscation passes (1-5) [{self.config['obfuscation_passes']}]: "
+                ).strip()
+                if passes_input:
+                    passes = int(passes_input)
+                    self.config['obfuscation_passes'] = max(1, min(5, passes))
 
-                noise = input("Add noise disruption? (y/n) [y]: ").lower().startswith('y')
-                self.config['add_noise'] = noise != False
+                noise_default = 'y' if self.config['add_noise'] else 'n'
+                noise_input = input(
+                    f"Add noise disruption? (y/n) [{noise_default}]: "
+                ).strip().lower()
+                if noise_input:
+                    self.config['add_noise'] = not noise_input.startswith('n')
             except ValueError:
                 print("Invalid input, using defaults")
 
@@ -93,14 +198,21 @@ class SecurePipeline:
         print("1. JPEG (recommended - adds compression artifacts)")
         print("2. PNG (lossless)")
 
-        format_choice = input("Choose format (1-2) [1]: ").strip() or "1"
+        format_default = "1" if self.config['output_format'] == 'JPEG' else "2"
+        format_choice = input(f"Choose format (1-2) [{format_default}]: ").strip() or format_default
         if format_choice == "2":
             self.config['output_format'] = 'PNG'
-
+        
         # JPEG quality if needed
         if self.config['output_format'] == 'JPEG':
             try:
-                quality = int(input("JPEG quality (70-95) [85]: ") or "85")
+                quality_input = input(
+                    f"JPEG quality (70-95) [{self.config['jpeg_quality']}]: "
+                ).strip()
+                if quality_input:
+                    quality = int(quality_input)
+                else:
+                    quality = self.config['jpeg_quality']
                 self.config['jpeg_quality'] = max(70, min(95, quality))
             except ValueError:
                 pass
@@ -128,7 +240,7 @@ class SecurePipeline:
         supported_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'}
         image_files = []
 
-        ingest_dir = self.base_dir / 'ingest'
+        ingest_dir = self.directories['ingest']
         for file_path in ingest_dir.iterdir():
             if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
                 image_files.append(file_path)
@@ -163,7 +275,7 @@ class SecurePipeline:
 
                 # Step 2: Create preserved copy in originals/
                 original_filename = f"{timestamp}__{input_path.name}"
-                original_path = self.base_dir / 'originals' / original_filename
+                original_path = self.directories['originals'] / original_filename
                 shutil.copy2(input_path, original_path)
 
                 # Record original file
@@ -186,9 +298,12 @@ class SecurePipeline:
                 clean_img, obfuscation_log = self.processor.strip_metadata_and_obfuscate(original_img)
 
                 # Step 4: Save cleaned image
-                clean_filename = f"{timestamp}__{stem}_clean.jpg" if self.config[
-                                                                         'output_format'] == 'JPEG' else f"{timestamp}__{stem}_clean.png"
-                clean_path = self.base_dir / 'clean' / clean_filename
+                clean_filename = (
+                    f"{timestamp}__{stem}_clean.jpg"
+                    if self.config['output_format'] == 'JPEG'
+                    else f"{timestamp}__{stem}_clean.png"
+                )
+                clean_path = self.directories['clean'] / clean_filename
 
                 save_params = {}
                 if self.config['output_format'] == 'JPEG':
@@ -296,9 +411,9 @@ class SecurePipeline:
         print(f"Failed: {stats['failed']}")
 
         if stats['successful'] > 0:
-            print(f"\nCleaned images available in: {self.base_dir / 'clean'}")
-            print(f"Originals preserved in: {self.base_dir / 'originals'}")
-            print(f"Audit trail in database: {self.base_dir / 'db' / 'processing.db'}")
+            print(f"\nCleaned images available in: {self.directories['clean']}")
+            print(f"Originals preserved in: {self.directories['originals']}")
+            print(f"Audit trail in database: {self.db_path}")
 
     def show_database_summary(self):
         """Display summary of database contents."""
