@@ -12,30 +12,16 @@ Interactive system that processes images through an auditable pipeline:
 Pure Python implementation - no external tools required.
 """
 
-import os
 import sys
-import json
-import shutil
-import hashlib
-import sqlite3
 from pathlib import Path
-from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple
-import time
 
 # Image processing imports
-from PIL import Image, ImageFilter, ImageEnhance
-from PIL.ExifTags import TAGS, GPSTAGS
-import numpy as np
-import random
-from src.SecureImageProcessor import SecureImageProcessor
-from src.DatabaseManager import DatabaseManager
 from src.SecurePipeline import SecurePipeline
 
 
-def check_setup_required(base_dir: Path = Path(".")):
+def check_setup_required(base_dir: Path = Path("src")):
     """Check if initial setup is required."""
-    required_dirs = ['ingest', 'clean', 'originals', 'db', 'src']
+    required_dirs = ['images_ingest', 'images_clean', 'images_originals', 'db', 'src']
 
     missing_dirs = []
     for dirname in required_dirs:
@@ -65,8 +51,8 @@ def run_initial_setup():
 
 def create_basic_directories():
     """Fallback directory creation if setup.py is not available."""
-    base_dir = Path(".")
-    directories = ['ingest', 'clean', 'originals', 'db', 'logs', 'src']
+    base_dir = Path("src")
+    directories = ['images_ingest', 'images_clean', 'images_originals', 'db', 'logs', 'src']
 
     try:
         for dirname in directories:
@@ -74,7 +60,7 @@ def create_basic_directories():
             print(f"✓ Created {dirname}/")
 
         # Create basic README for ingest
-        ingest_readme = base_dir / 'ingest' / 'README.txt'
+        ingest_readme = base_dir / 'images_ingest' / 'README.txt'
         if not ingest_readme.exists():
             ingest_readme.write_text(
                 "Place sensitive images here for processing.\n"
@@ -113,9 +99,9 @@ def show_welcome_message():
     print("✓ Creating clean versions safe for distribution")
     print()
     print("Usage:")
-    print("1. Place images in the 'ingest/' folder")
+    print("1. Place images in the 'images_ingest/' folder")
     print("2. Run this program and follow the interactive prompts")
-    print("3. Collect cleaned images from the 'clean/' folder")
+    print("3. Collect cleaned images from the 'images_clean/' folder")
     print()
 
 
@@ -184,7 +170,7 @@ def main():
         elif choice == "3":
             # Show directory structure
             print(f"\nDirectory structure in {pipeline.base_dir}:")
-            for dirname in ['ingest', 'clean', 'originals', 'db', 'logs']:
+            for dirname in ['images_ingest', 'images_clean', 'images_originals', 'db', 'logs']:
                 dir_path = pipeline.base_dir / dirname
                 if dir_path.exists():
                     files = list(dir_path.glob('*'))
