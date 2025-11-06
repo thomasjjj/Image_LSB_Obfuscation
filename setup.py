@@ -103,7 +103,7 @@ def _write_ingest_readme(base_dir: Path = BASE_DIR) -> None:
 
     ingest_readme.write_text(
         "Place sensitive images here for processing.\n"
-        "Supported formats: JPEG, PNG, BMP, TIFF, WebP\n"
+        "Supported formats: JPEG, PNG, BMP, TIFF, WebP, MP4 (metadata only)\n"
     )
     display_name = _format_directory_display(base_dir, ingest_readme)
     print(f"✓ Created {display_name}")

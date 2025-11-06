@@ -149,7 +149,7 @@ def create_basic_directories(base_dir: Path):
         if not ingest_readme.exists():
             ingest_readme.write_text(
                 "Place sensitive images here for processing.\n"
-                "Supported formats: JPEG, PNG, BMP, TIFF, WebP\n"
+                "Supported formats: JPEG, PNG, BMP, TIFF, WebP, MP4 (metadata only)\n"
             )
 
         return True
@@ -177,16 +177,16 @@ def show_welcome_message():
     print("Human Rights Documentation Tool", style="bold white")
     print("=" * 60, style="bold cyan")
     print()
-    print("This tool securely processes sensitive images by:", style="bold")
+    print("This tool securely processes sensitive media by:", style="bold")
     print("✓ Removing all metadata (EXIF, GPS, etc.)", style="green")
     print("✓ Applying LSB randomization to disrupt hidden content", style="green")
     print("✓ Preserving originals with complete audit trail", style="green")
     print("✓ Creating clean versions safe for distribution", style="green")
     print()
     print("Usage:", style="bold")
-    print("1. Place images in the 'ingest/' folder")
+    print("1. Place images/videos in the 'ingest/' folder")
     print("2. Run this program and follow the interactive prompts")
-    print("3. Collect cleaned images from the 'clean/' folder")
+    print("3. Collect cleaned media from the 'clean/' folder")
     print()
 
 
@@ -246,11 +246,20 @@ def main():
         print("Please ensure all required files are present in src/ directory.")
         sys.exit(1)
 
+    # Upfront notice about ffmpeg availability for video processing
+    try:
+        if hasattr(pipeline, 'video_processor') and not pipeline.video_processor.ffmpeg_available():
+            print("[bold yellow]Note:[/] ffmpeg not found on PATH — MP4 video processing (metadata stripping) is disabled for this session.")
+            print("Install ffmpeg and ensure it's on PATH to enable video processing.")
+    except Exception:
+        # Non-fatal if probe fails; image processing remains available
+        pass
+
     # Main interface loop
     while True:
         print(f"Working directory: {pipeline.base_dir.absolute()}")
         print("\nOptions:")
-        print("1. Configure and process images")
+        print("1. Configure and process media")
         print("2. View database summary")
         print("3. Show directory structure")
         print("4. Run setup again")

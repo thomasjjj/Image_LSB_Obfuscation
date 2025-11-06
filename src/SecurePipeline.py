@@ -15,6 +15,7 @@ from PIL.ExifTags import TAGS, GPSTAGS
 import numpy as np
 import random
 from src.SecureImageProcessor import SecureImageProcessor
+from src.SecureVideoProcessor import SecureVideoProcessor
 from src.DatabaseManager import DatabaseManager
 from rich.console import Console
 from rich.markup import escape
@@ -80,6 +81,7 @@ class SecurePipeline:
         }
 
         self.processor = SecureImageProcessor(self.config)
+        self.video_processor = SecureVideoProcessor()
 
     def _prompt(self, message: str, *, style: str = PROMPT_STYLE) -> str:
         """Display a styled prompt to the user."""
@@ -275,16 +277,19 @@ class SecurePipeline:
         return True
 
     def scan_ingest_folder(self) -> List[Path]:
-        """Scan ingest folder for image files."""
-        supported_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp'}
-        image_files = []
+        """Scan ingest folder for supported media files (images + MP4)."""
+        supported_extensions = {
+            '.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp',
+            '.mp4'
+        }
+        media_files: List[Path] = []
 
         ingest_dir = self.directories['ingest']
         for file_path in ingest_dir.iterdir():
             if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
-                image_files.append(file_path)
+                media_files.append(file_path)
 
-        return sorted(image_files)
+        return sorted(media_files)
 
     def process_single_image(
         self,
@@ -427,20 +432,155 @@ class SecurePipeline:
             })
             return False
 
+    def process_single_video(
+        self,
+        input_path: Path,
+        run_id: int,
+        progress: Optional[Progress] = None,
+    ) -> bool:
+        """Process a single MP4: strip all metadata, preserve original, audit."""
+        printer = progress.console.print if progress else self.console.print
+        file_name = escape(input_path.name)
+        try:
+            if input_path.suffix.lower() != ".mp4":
+                raise ValueError("Unsupported video format; only .mp4 is supported")
+
+            printer(f"[bold magenta]Processing (video):[/] {file_name}")
+
+            # Generate timestamped names
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            stem = input_path.stem
+
+            # Basic file info (dimensions unknown without probing; set to 0)
+            file_size = input_path.stat().st_size
+            original_hash = self.processor.calculate_file_hash(str(input_path))
+
+            # Preserve original
+            original_filename = f"{timestamp}__{input_path.name}"
+            original_path = self.directories['originals'] / original_filename
+            shutil.copy2(input_path, original_path)
+
+            original_info = {
+                'width': 0,
+                'height': 0,
+                'format': 'MP4',
+                'mode': '',
+                'file_size': file_size,
+            }
+            original_file_id = self.db.record_file(
+                run_id, 'original', input_path.name,
+                str(original_path), original_hash, original_info
+            )
+
+            # Preserved metadata placeholder (no EXIF for video)
+            self.db.record_preserved_metadata(original_file_id, {
+                'exif_data': {},
+                'exif_gps': {},
+                'icc_profile': 0,
+                'other_info': {'media_type': 'video_mp4'},
+                'has_transparency': False,
+                'original_mode': ''
+            })
+
+            self.db.record_action(run_id, original_file_id, 'preserve_original', {
+                'original_path': str(input_path),
+                'preserved_path': str(original_path),
+                'hash_sha256': original_hash
+            })
+
+            # Strip metadata with ffmpeg
+            clean_filename = f"{timestamp}__{stem}_clean.mp4"
+            clean_path = self.directories['clean'] / clean_filename
+
+            success, details = self.video_processor.strip_all_metadata(input_path, clean_path)
+            if not success:
+                raise RuntimeError(f"Video metadata stripping failed: {details.get('error','unknown error')}")
+
+            clean_hash = self.processor.calculate_file_hash(str(clean_path))
+            clean_info = {
+                'width': 0,
+                'height': 0,
+                'format': 'MP4',
+                'mode': '',
+                'file_size': clean_path.stat().st_size,
+            }
+            cleaned_file_id = self.db.record_file(
+                run_id, 'cleaned', clean_filename,
+                str(clean_path), clean_hash, clean_info
+            )
+
+            # Record obfuscation summary (LSB not applied for video)
+            obfuscation_log = {
+                'metadata_stripped': True,
+                'lsb_randomization_applied': False,
+                'transparency_removed': False,
+                'noise_added': False,
+                'passes_applied': 0,
+                'note': 'Video processing: metadata stripping only; no LSB.'
+            }
+            self.db.record_obfuscation_summary(
+                cleaned_file_id, original_file_id, obfuscation_log,
+                'MP4', 'MP4'
+            )
+
+            self.db.record_action(run_id, cleaned_file_id, 'video_metadata_strip', {
+                'input_hash': original_hash,
+                'output_hash': clean_hash,
+                'tool': 'ffmpeg',
+                'details': details,
+            })
+
+            # Remove from ingest
+            input_path.unlink()
+            self.db.record_action(run_id, original_file_id, 'remove_from_ingest', {
+                'ingest_path': str(input_path)
+            })
+
+            preserved_name = escape(original_path.name)
+            clean_name = escape(clean_path.name)
+            printer(f"[green]  • Original preserved:[/] {preserved_name}")
+            printer(f"[green]  • Cleaned version:[/] {clean_name}")
+            printer(f"[green]  • Metadata stripped:[/] Yes")
+            printer(f"[yellow]  • LSB randomization:[/] Not applied for video")
+
+            return True
+
+        except Exception as e:
+            error_message = escape(str(e))
+            printer(f"[bold red]  • Error processing {file_name}: {error_message}[/]")
+            self.db.record_action(run_id, 0, 'processing_error', {
+                'file': str(input_path),
+                'error': str(e)
+            })
+            return False
+
     def run_processing_batch(self):
         """Run batch processing on all images in ingest folder."""
-        image_files = self.scan_ingest_folder()
+        media_files = self.scan_ingest_folder()
 
-        if not image_files:
-            self.console.print("[bold yellow]No images found in ingest folder.[/]")
+        if not media_files:
+            self.console.print("[bold yellow]No supported media found in ingest folder.[/]")
             return
 
-        self.console.print(f"\n[bold]Found {len(image_files)} image(s) to process:[/]")
-        for img_file in image_files:
-            self.console.print(f"  - {escape(img_file.name)}", style="dim")
+        videos = [p for p in media_files if p.suffix.lower() == '.mp4']
+        images = [p for p in media_files if p.suffix.lower() != '.mp4']
+
+        ffmpeg_ok = self.video_processor.ffmpeg_available()
+        files_to_process = list(media_files)
+        if videos and not ffmpeg_ok:
+            self.console.print("[bold yellow]ffmpeg not found on PATH — MP4 videos will be skipped.[/]")
+            self.console.print("To enable video processing, install ffmpeg and ensure it's on PATH.")
+            files_to_process = images
+            if not files_to_process:
+                self.console.print("[bold yellow]Only videos detected and ffmpeg is missing. Nothing to process.[/]")
+                return
+
+        self.console.print(f"\n[bold]Found {len(files_to_process)} file(s) to process:[/]")
+        for mf in files_to_process:
+            self.console.print(f"  - {escape(mf.name)}", style="dim")
 
         proceed = (
-            self._prompt(f"\nProcess all {len(image_files)} images? (y/n) [y]: ")
+            self._prompt(f"\nProcess all {len(files_to_process)} files? (y/n) [y]: ")
             .strip()
             .lower()
         )
@@ -453,7 +593,7 @@ class SecurePipeline:
 
         self.console.print(f"\n[bold cyan]=== PROCESSING BATCH (Run ID: {run_id}) ===[/]")
 
-        stats = {'total': len(image_files), 'successful': 0, 'failed': 0}
+        stats = {'total': len(files_to_process), 'successful': 0, 'failed': 0}
 
         progress_columns = [
             SpinnerColumn(),
@@ -465,10 +605,14 @@ class SecurePipeline:
         ]
 
         with Progress(*progress_columns, console=self.console, transient=True) as progress:
-            task_id = progress.add_task("Processing images", total=len(image_files))
-            for img_file in image_files:
-                progress.update(task_id, description=f"Processing {escape(img_file.name)}")
-                if self.process_single_image(img_file, run_id, progress=progress):
+            task_id = progress.add_task("Processing media", total=len(files_to_process))
+            for mf in files_to_process:
+                progress.update(task_id, description=f"Processing {escape(mf.name)}")
+                if mf.suffix.lower() == '.mp4':
+                    ok = self.process_single_video(mf, run_id, progress=progress)
+                else:
+                    ok = self.process_single_image(mf, run_id, progress=progress)
+                if ok:
                     stats['successful'] += 1
                 else:
                     stats['failed'] += 1
