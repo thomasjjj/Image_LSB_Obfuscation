@@ -28,9 +28,14 @@ from PIL import Image, ImageFilter, ImageEnhance
 from PIL.ExifTags import TAGS, GPSTAGS
 import numpy as np
 import random
-from src.SecureImageProcessor import SecureImageProcessor
-from src.DatabaseManager import DatabaseManager
-from src.SecurePipeline import SecurePipeline
+# Ensure 'src' is on sys.path for package imports
+SRC_DIR = Path(__file__).resolve().parent / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from secure_pipeline.secure_image_processor import SecureImageProcessor
+from secure_pipeline.database_manager import DatabaseManager
+from secure_pipeline.secure_pipeline import SecurePipeline
 
 from rich.console import Console
 from rich.markup import escape
@@ -310,3 +315,14 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\nUnexpected error: {e}")
         print("Please report this issue if it persists.")
+#!/usr/bin/env python3
+"""Compatibility launcher for the interactive CLI.
+
+Delegates to cli.py so business logic stays in reusable API functions.
+"""
+
+from secure_pipeline.cli import main
+
+
+if __name__ == "__main__":
+    main()

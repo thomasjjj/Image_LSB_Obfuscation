@@ -1,130 +1,128 @@
-# Secure Image Processing Pipeline
+# Secure Media Processing Pipeline
 
-A hardened image scrubbing workflow designed for human-rights field work. The
-pipeline strips metadata, destroys common steganographic payloads, and keeps a
-forensic audit trail linking every original image to its obfuscated counterpart.
+A secure, auditable pipeline to obfuscate images (metadata stripping + multi-pass LSB randomization) and strip metadata from MP4 videos. Originals are preserved and a SQLite audit trail records actions and hashes.
 
-## Project Goals
+- Source protection: remove EXIF/GPS, strip transparency, randomize LSBs.
+- Evidence preservation: preserve originals, record hashes and actions.
+- Operational usability: CLI and Streamlit UI with progress and logs.
 
-* **Source protection** – remove identifying metadata, strip transparency
-  channels, and randomize pixel data so LSB payloads cannot survive.
-* **Evidence preservation** – preserve originals with cryptographic hashes and
-  store detailed audit information in SQLite for legal or research review.
-* **Operational usability** – provide a guided Rich-powered CLI that prepares
-  the workspace, processes batches, and reports the audit trail in plain
-  language.
+## Install
 
-## Core Components
+Requires Python 3.9+.
 
-| Path | Purpose |
-| --- | --- |
-| `main.py` | Interactive entry point. Handles setup checks, configuration prompts, and runs the batch pipeline. |
-| `setup.py` | Initialises the working directories (`ingest/`, `clean/`, `originals/`, `db/`, `logs/`) and the SQLite database. |
-| `src/SecurePipeline.py` | Orchestrates ingestion, processing, storage, and audit logging for each batch run. |
-| `src/SecureImageProcessor.py` | Performs metadata extraction, multi-pass LSB randomisation, optional noise injection, and format normalisation. |
-| `src/DatabaseManager.py` | Creates and manages the SQLite schema used to track runs, files, preserved metadata, and obfuscation details. |
-| `test.py` | End-to-end validation script that embeds a known LSB payload, runs the pipeline, and verifies the payload is destroyed. |
+- From source (dev):
+  - Create and activate a virtualenv.
+  - pip install -r requirements-dev.txt
 
-The `requirements.txt` file pins the runtime dependencies (Pillow, NumPy, Rich).
+- As a package:
+  - pip install .
 
-## Directory Workflow
+Console script installed: `image-lsb-pipeline`
 
-The workspace is intentionally segregated:
+## Using the Library
 
-* `ingest/` – drop sensitive input files here.
-* `clean/` – scrubbed images ready for distribution.
-* `originals/` – timestamped copies of the untouched originals.
-* `db/processing.db` – SQLite audit trail storing run metadata, file hashes, and
-  obfuscation summaries.
-* `logs/` – reserved for future operational logging.
+```python
+from secure_pipeline import image_clean, video_clean
 
-All directories are created automatically by `setup.py` or during the first run
-of `main.py`. You can override their names (and the database filename) with
-environment variables such as `PIPELINE_INGEST_DIR`, `PIPELINE_CLEAN_DIR`,
-`PIPELINE_DB_FILENAME`, etc. Place overrides in a `.env` file at the project
-root for convenience.
+# Clean an image on disk and save output
+cleaned_img, log, out_path = image_clean(
+    "ingest/photo.jpg",
+    lsb_flip_probability=0.20,
+    obfuscation_passes=3,
+    add_noise=True,
+    output_format="JPEG",
+    jpeg_quality=85,
+    output_dir="clean",
+)
 
-## Installation
+# Clean a loaded Pillow image in memory (no file written)
+from PIL import Image
+im = Image.open("photo.png")
+clean_im, log, out_path = image_clean(im)
 
-1. Install Python 3.9 or later.
-2. Optionally create a virtual environment and activate it.
-3. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-4. Prepare the workspace and database:
-   ```bash
-   python setup.py
-   ```
-
-The setup script is idempotent; rerunning it safely recreates any missing
-folders and reinitialises the SQLite schema.
-
-## Running the Pipeline
-
-1. Stage images in the ingest directory.
-2. Launch the CLI:
-   ```bash
-   python main.py
-   ```
-3. Follow the prompts to select a security level or customise parameters. The
-   CLI presents options for LSB flip probability, number of passes, optional
-   noise, and output format (JPEG with randomised quality or PNG).
-4. Confirm the batch to start processing. The tool displays live progress and
-   records each step in the database.
-5. Retrieve cleaned files from `clean/` and archive the originals and database
-   as required by your operational policy.
-
-### Security Profiles
-
-| Mode | LSB Flip Probability | Passes | Noise | Notes |
-| --- | --- | --- | --- | --- |
-| Standard | 0.15 | 2 | Enabled | Balanced protection for general use. |
-| High | 0.20 | 3 | Enabled | Adds more aggressive LSB disruption. |
-| Maximum | 0.25 | 3 | Enabled | Preserves the default behaviour but with additional emphasis on bit randomisation. |
-| Custom | 0.05–0.30 | 1–5 | Optional | Fine-grained control over every parameter. |
-
-JPEG output introduces compression artefacts that further disturb frequency
-based steganography. PNG output is available for workflows that require
-lossless delivery at the expense of reduced obfuscation strength.
-
-## Database & Audit Trail
-
-Every run captures:
-
-* Operator name, configuration JSON, and timestamps.
-* SHA-256 hashes, image dimensions, and formats for both original and cleaned
-  assets.
-* Preserved metadata dumps (EXIF, GPS, ICC profile size, transparency details).
-* Obfuscation summaries linking original and cleaned files, including format
-  changes and pass counts.
-* Action logs documenting preservation, obfuscation, ingest cleanup, and any
-  processing errors.
-
-The Rich CLI can show recent run statistics via the “View database summary”
-menu option.
-
-## Verification Tools
-
-`test.py` offers an automated confidence check. It creates or accepts an image,
-embeds a secret message with a simple LSB algorithm, runs the pipeline in a
-temporary workspace, and confirms the message cannot be recovered afterwards.
-Run it with:
-
-```bash
-python test.py [optional_path_to_image]
+# Strip metadata from a video (no LSB; requires ffmpeg)
+out_video, details = video_clean("clips/source.mp4", output_dir="clean")
 ```
 
-## Operational Guidance
+Defaults (image_clean):
+- lsb_flip_probability=0.15 (recommended 0.05–0.30)
+- obfuscation_passes=2 (1–5)
+- add_noise=True
+- output_format="JPEG", jpeg_quality=85
 
-* Process only material you are authorised to modify; originals contain highly
-  sensitive information.
-* Scrubbed files no longer match the original hash – this is expected and is
-  recorded in the database for forensic integrity.
-* Visual content (faces, landmarks) is not altered; pair this tool with
-  redaction or blurring where appropriate.
-* Protect the database and originals directories as they contain sensitive
-  provenance data.
+For video_clean, only metadata is stripped; LSB is not applied.
 
-The project prioritises source safety over fidelity, enabling field teams to
-share crucial evidence without exposing the individuals who captured it.
+## CLI Usage
+
+Two entry points:
+- Package script: `image-lsb-pipeline`
+- Repo launcher: `python main.py`
+
+Workflow:
+1. Place media in `ingest/` (JPG/PNG/BMP/TIFF/WebP; MP4).
+2. Run the CLI and choose a preset or custom options.
+3. Originals preserved to `originals/`, cleaned outputs to `clean/`, audit DB at `db/processing.db`.
+4. ffmpeg is required for MP4; if missing, videos are skipped.
+
+## Streamlit UI
+
+Run a drag-and-drop UI with progress and downloads:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+The UI uses an isolated workspace per session and the same processing logic.
+
+## Directories and Configuration
+
+Default structure:
+
+```
+ingest/      # drop sensitive originals here
+clean/       # scrubbed outputs
+originals/   # timestamped, immutable copies of originals
+db/          # SQLite audit log (processing.db)
+logs/        # reserved for operational logging
+```
+
+Environment overrides (CLI/setup):
+- PIPELINE_INGEST_DIR (default: "ingest")
+- PIPELINE_CLEAN_DIR ("clean")
+- PIPELINE_ORIGINALS_DIR ("originals")
+- PIPELINE_DB_DIR ("db")
+- PIPELINE_LOG_DIR ("logs")
+- PIPELINE_DB_FILENAME ("processing.db")
+- PIPELINE_DEFAULT_SECURITY_LEVEL (1–4)
+- Optional fine-tuning: PIPELINE_LSB_FLIP_PROBABILITY, PIPELINE_OBFUSCATION_PASSES, PIPELINE_ADD_NOISE, PIPELINE_OUTPUT_FORMAT, PIPELINE_JPEG_QUALITY
+
+Place overrides in a `.env` at repo root to persist.
+
+## Database & Audit Trail (CLI)
+
+The CLI records:
+- Runs: operator, timestamps, config, totals.
+- Files: hashes, sizes, dimensions, formats.
+- Preserved metadata: EXIF/GPS/ICC/transparency.
+- Obfuscation summary: metadata removal, pass counts, noise, format changes.
+- Actions: preservation, processing, ingest cleanup, errors.
+
+## Tests & CI
+
+Run tests locally:
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+GitHub Actions workflow `.github/workflows/ci.yml` runs tests on pushes and PRs.
+
+## Notes
+
+- ffmpeg must be installed and on PATH for MP4 processing.
+- Visual anonymisation (faces/redaction) is out of scope; pair with dedicated tools.
+
+## API Docs (Optional)
+
+The primary API is small and documented via docstrings. If you’d like generated docs (Sphinx/Markdown), open an issue and we can add a docs/ folder and CI job to publish.

@@ -23,8 +23,16 @@ from PIL import Image
 import hashlib
 
 # Import the pipeline components
-from src.SecureImageProcessor import SecureImageProcessor
-from src.DatabaseManager import DatabaseManager
+from pathlib import Path
+import sys
+
+# Ensure 'src' is importable for secure_pipeline package
+SRC_DIR = Path(__file__).resolve().parent / "src"
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from secure_pipeline.secure_image_processor import SecureImageProcessor
+from secure_pipeline.database_manager import DatabaseManager
 
 
 class LSBSteganography:

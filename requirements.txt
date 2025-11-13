@@ -1,6 +1,3 @@
 
-rich>=13.0.0
-numpy~=2.3.3
-pillow~=11.3.0
-
-streamlit>=1.24.0
+# Development convenience: install the package in editable mode
+-e .
