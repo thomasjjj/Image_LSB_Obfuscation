@@ -118,6 +118,16 @@ pytest -q
 
 GitHub Actions workflow `.github/workflows/ci.yml` runs tests on pushes and PRs.
 
+## Documentation
+
+API and usage documentation is built with Sphinx and published via GitHub Pages.
+
+- Live docs (after Pages is enabled): https://<your-org>.github.io/<your-repo>/
+- Build locally:
+  - pip install -r requirements-dev.txt
+  - sphinx-build -b html docs/source docs/_build/html
+  - open docs/_build/html/index.html
+
 ## Notes
 
 - ffmpeg must be installed and on PATH for MP4 processing.
