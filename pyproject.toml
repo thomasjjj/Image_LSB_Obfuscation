@@ -1,0 +1,47 @@
+[project]
+name = "image-lsb-pipeline"
+version = "0.1.0"
+description = "Secure image/video obfuscation and metadata stripping with audit logging"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+  {name = "Secure Pipeline Team"},
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Information Technology",
+  "Topic :: Security",
+  "Topic :: Multimedia :: Graphics :: Graphics Conversion",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: OS Independent",
+]
+dependencies = [
+  "rich>=13.0.0",
+  "pillow>=10.0.0",
+  "numpy>=1.24.0",
+  "streamlit>=1.24.0",
+]
+
+[project.scripts]
+image-lsb-pipeline = "secure_pipeline.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["secure_pipeline*"]
