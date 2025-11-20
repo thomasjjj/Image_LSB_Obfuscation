@@ -11,7 +11,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from secure_pipeline import image_clean  # noqa: E402
+from Image_LSB import image_clean  # noqa: E402
 
 
 def _make_sample_image_with_exif(path: Path) -> None:
@@ -84,4 +84,3 @@ def test_image_clean_in_memory_returns_image(tmp_path: Path) -> None:
     assert out_path is None
     assert cleaned_img.size == (32, 32)
     assert log.get("lsb_randomization_applied", True) in (True, False)
-

@@ -1,5 +1,5 @@
 [project]
-name = "image-lsb-pipeline"
+name = "Image_LSB"
 version = "0.1.0"
 description = "Secure image/video obfuscation and metadata stripping with audit logging"
 readme = "README.md"
@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [project.scripts]
-image-lsb-pipeline = "secure_pipeline.cli:main"
+image-lsb = "Image_LSB.cli:main"
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
@@ -44,4 +44,4 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["secure_pipeline*"]
+include = ["Image_LSB*"]

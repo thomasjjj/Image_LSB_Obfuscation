@@ -1,8 +1,7 @@
 API Reference
 =============
 
-.. automodule:: secure_pipeline
+.. automodule:: Image_LSB
    :members:
    :undoc-members:
    :show-inheritance:
-

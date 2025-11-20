@@ -19,7 +19,7 @@ Run the CLI to process media from the ingest folder and write to clean/ with ori
 
 .. code-block:: bash
 
-   image-lsb-pipeline
+   image-lsb
 
    # or
    python main.py
@@ -29,7 +29,7 @@ Library
 
 .. code-block:: python
 
-   from secure_pipeline import image_clean, video_clean
+   from Image_LSB import image_clean, video_clean
    from PIL import Image
 
    # Clean an image on disk
@@ -70,4 +70,3 @@ Optional fine-tuning used by the CLI defaults:
 - ``PIPELINE_ADD_NOISE``
 - ``PIPELINE_OUTPUT_FORMAT``
 - ``PIPELINE_JPEG_QUALITY``
-

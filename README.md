@@ -17,12 +17,12 @@ Requires Python 3.9+.
 - As a package:
   - pip install .
 
-Console script installed: `image-lsb-pipeline`
+Console script installed: `image-lsb`
 
 ## Using the Library
 
 ```python
-from secure_pipeline import image_clean, video_clean
+from Image_LSB import image_clean, video_clean
 
 # Clean an image on disk and save output
 cleaned_img, log, out_path = image_clean(
@@ -55,7 +55,7 @@ For video_clean, only metadata is stripped; LSB is not applied.
 ## CLI Usage
 
 Two entry points:
-- Package script: `image-lsb-pipeline`
+- Package script: `image-lsb`
 - Repo launcher: `python main.py`
 
 Workflow:

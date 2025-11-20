@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-project = "Secure Media Processing Pipeline"
+project = "Image_LSB Media Processing Pipeline"
 author = "Secure Pipeline Team"
 copyright = f"{datetime.utcnow().year}, {author}"
 
@@ -32,4 +32,3 @@ autodoc_default_options = {
 
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True
-

@@ -31,8 +31,8 @@ SRC_DIR = Path(__file__).resolve().parent / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from secure_pipeline.secure_image_processor import SecureImageProcessor
-from secure_pipeline.database_manager import DatabaseManager
+from Image_LSB.secure_image_processor import SecureImageProcessor
+from Image_LSB.database_manager import DatabaseManager
 
 
 class LSBSteganography:
